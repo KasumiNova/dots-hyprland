@@ -477,7 +477,7 @@ if [[ "${SKIP_NOTICE}" == false ]]; then
   log_warning "THIS SCRIPT IS NOT FULLY TESTED AND MAY CAUSE ISSUES!"
   log_warning "It might be safer if you want to preserve your modifications and not delete added files,"
   log_warning "  but this can cause partial updates and therefore unexpected behavior like in #1856."
-  log_warning "In general, prefer install.sh for updates."
+  log_warning "In general, prefer ./setup install for updates."
   safe_read "Continue? (y/N): " response "N"
 
   if [[ ! "$response" =~ ^[Yy]$ ]]; then
@@ -541,6 +541,7 @@ if git remote get-url origin &>/dev/null; then
   log_info "Pulling changes from origin/$current_branch..."
   if git pull; then
     log_success "Successfully pulled latest changes"
+    git submodule update --init --recursive
   else
     log_warning "Failed to pull changes from remote. Continuing with local repository..."
     log_info "You may need to resolve conflicts manually later."
