@@ -8,7 +8,7 @@ conflicts=("quickshell-git")
 
 _pkgname=quickshell
 pkgname="$_prefix-$_pkgname-git"
-pkgver=0.2.0.r31.g0085881
+pkgver=0.2.0.r32.g3e2ce40
 pkgrel=1
 pkgdesc="$_pkgname-git which version pinned for $_prefix"
 arch=(x86_64 aarch64)
