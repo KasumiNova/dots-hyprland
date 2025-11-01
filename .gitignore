@@ -5,5 +5,5 @@ __pycache__/
 *.py[cod]
 dots/.config/quickshell/ii/.qmlls.ini
 .update-lock
-/sdist/arch
+/sdist
 /sdata/dist-arch/illogical-impulse-quickshell-git/quickshell/
