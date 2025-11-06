@@ -7,3 +7,4 @@ dots/.config/quickshell/ii/.qmlls.ini
 .update-lock
 /sdist
 /sdata/dist-arch/illogical-impulse-quickshell-git/quickshell/
+/os-release
