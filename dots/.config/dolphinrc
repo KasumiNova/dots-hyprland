@@ -1,8 +1,11 @@
 [DetailsMode]
+IconSize=22
+LeftPadding=0
 PreviewSize=32
+RightPadding=0
 
 [General]
-GlobalViewProps=false
+RememberOpenedTabs=false
 ShowFullPath=true
 ShowStatusBar=FullWidth
 Version=202
@@ -15,4 +18,4 @@ Places Icons Static Size=22
 MenuBar=Disabled
 
 [PreviewSettings]
-Plugins=ffmpegthumbnailer,appimagethumbnail,audiothumbnail,avif,blenderthumbnail,comicbookthumbnail,cursorthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,directorythumbnail,fontthumbnail,heif,imagethumbnail,jpegthumbnail,jxl,kraorathumbnail,windowsexethumbnail,windowsimagethumbnail,mobithumbnail,opendocumentthumbnail,gsthumbnail,rawthumbnail,librsvg,svgthumbnail,ffmpegthumbs,gdk-pixbuf-thumbnailer,gsf-office
+Plugins=appimagethumbnail,glycin-heif,comicbookthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,glycin-image-rs,glycin-jxl,jpegthumbnail,kraorathumbnail,windowsimagethumbnail,windowsexethumbnail,opendocumentthumbnail,glycin-svg,svgthumbnail,aseprite,cursorthumbnail,imagethumbnail,fontthumbnail,directorythumbnail,audiothumbnail
