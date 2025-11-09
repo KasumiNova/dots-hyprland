@@ -148,6 +148,7 @@ Singleton {
                 property JsonObject widgets: JsonObject {
                     property JsonObject clock: JsonObject {
                         property bool enable: true
+                        property bool showOnlyWhenLocked: false
                         property string placementStrategy: "leastBusy" // "free", "leastBusy", "mostBusy"
                         property real x: 100
                         property real y: 100
@@ -267,6 +268,22 @@ Singleton {
                 property int suspend: 3
             }
 
+            property JsonObject cheatsheet: JsonObject {
+                // Use a nerdfont to see the icons
+                // 0: 󰖳  | 1: 󰌽 | 2: 󰘳 | 3:  | 4: 󰨡
+                // 5:  | 6:  | 7: 󰣇 | 8:  | 9: 
+                // 10:  | 11:  | 12:  | 13:  | 14: 󱄛
+                property string superKey: ""
+                property bool useMacSymbol: false
+                property bool splitButtons: false
+                property bool useMouseSymbol: false
+                property bool useFnSymbol: false
+                property JsonObject fontSize: JsonObject {
+                    property int key: Appearance.font.pixelSize.smaller
+                    property int comment: Appearance.font.pixelSize.smaller
+                }
+            }
+
             property JsonObject conflictKiller: JsonObject {
                 property bool autoKillNotificationDaemons: false
                 property bool autoKillTrays: false
@@ -364,6 +381,11 @@ Singleton {
             property JsonObject overlay: JsonObject {
                 property bool openingZoomAnimation: true
                 property bool darkenScreen: true
+                property real clickthroughOpacity: 0.8
+                property JsonObject floatingImage: JsonObject {
+                    property string imageSource: "https://cdn.discordapp.com/attachments/961693710968557598/1369635662390759434/image.gif?ex=6911cb1c&is=6910799c&hm=4450244066c0a7a6e5d2bdd195f47388eb5e7f9dd53d3931e99ad9642c638a00&"
+                    property real scale: 0.5
+                }
             }
 
             property JsonObject overview: JsonObject {
@@ -395,6 +417,7 @@ Singleton {
 
             property JsonObject resources: JsonObject {
                 property int updateInterval: 3000
+                property int historyLength: 60
             }
 
             property JsonObject musicRecognition: JsonObject {
@@ -473,6 +496,14 @@ Singleton {
                     property bool showVolume: true
                     property bool showBrightness: true
                 }
+            }
+
+            property JsonObject screenRecord: JsonObject {
+                property string savePath: Directories.videos.replace("file://","") // strip "file://"
+            }
+
+            property JsonObject screenSnip: JsonObject {
+                property string savePath: "" // only copy to clipboard when empty
             }
 
             property JsonObject sounds: JsonObject {
