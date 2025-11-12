@@ -8,3 +8,5 @@ dots/.config/quickshell/ii/.qmlls.ini
 /sdist
 /sdata/dist-arch/illogical-impulse-quickshell-git/quickshell/
 /os-release
+#emacs backup
+*~
