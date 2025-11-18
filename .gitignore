@@ -1,5 +1,6 @@
 /diagnose.result
 /cache
+
 # Ignore Python cache files
 __pycache__/
 *.py[cod]
@@ -7,6 +8,14 @@ dots/.config/quickshell/ii/.qmlls.ini
 .update-lock
 /sdist
 /sdata/dist-arch/illogical-impulse-quickshell-git/quickshell/
+
+/dots/.config/quickshell/ii/.qmlls.ini
+
+# exp-update
+/.update-lock
+
+# custom os-release
 /os-release
-#emacs backup
+
+# Emacs auto backup file
 *~
