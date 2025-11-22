@@ -155,6 +155,9 @@ widgetStyle=Darkly
 [KDE]
 widgetStyle=Darkly
 
+[KDE]
+widgetStyle=Darkly
+
 [KFileDialog Settings]
 Allow Expansion=false
 Automatically select filename extension=true

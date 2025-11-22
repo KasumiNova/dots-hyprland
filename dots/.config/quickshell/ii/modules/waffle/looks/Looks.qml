@@ -17,6 +17,12 @@ Singleton {
 
     property real backgroundTransparency: 0.17
     property real contentTransparency: 0.25
+    function applyBackgroundTransparency(col) {
+        return ColorUtils.applyAlpha(col, 1 - root.backgroundTransparency)
+    }
+    function applyContentTransparency(col) {
+        return ColorUtils.applyAlpha(col, 1 - root.contentTransparency)
+    }
     colors: QtObject {
         id: colors
         property color ambientShadow: ColorUtils.transparentize("#000000", 0.75)
@@ -33,16 +39,21 @@ Singleton {
         property color bg2Hover: root.dark ? "#383838" : "#FDFDFD"
         property color bg2Active: root.dark ? "#333333" : "#FDFDFD"
         property color bg2Border: root.dark ? "#464646" : "#EEEEEE"
+        property color subfg: root.dark ? "#CED1D7" : "#5C5C5C"
         property color fg: root.dark ? "#FFFFFF" : "#000000"
         property color fg1: root.dark ? "#D1D1D1" : "#626262"
+        property color inactiveIcon: root.dark ? "#494949" : "#C4C4C4"
         property color controlBg: root.dark ? "#9B9B9B" : "#868686"
         property color controlFg: root.dark ? "#454545" : "#FFFFFF"
         property color danger: "#C42B1C"
         property color dangerActive: "#B62D1F"
         property color warning: "#FF9900"
         // property color accent: root.dark ? "#A5C6D8" : "#5377A3"
-        property color accent: Appearance.m3colors.m3primary
+        property color accent: Appearance.colors.colPrimary
+        property color accentHover: Appearance.colors.colPrimaryHover
+        property color accentActive: Appearance.colors.colPrimaryActive
         property color accentUnfocused: root.dark ? "#989898" : "#848484"
+        property color accentFg: ColorUtils.isDark(accent) ? "#FFFFFF" : "#000000"
     }
 
     radius: QtObject {
@@ -67,7 +78,8 @@ Singleton {
         }
         property QtObject pixelSize: QtObject {
             property real normal: 11
-            property real large: 14
+            property real large: 13
+            property real larger: 15
         }
     }
 
@@ -93,8 +105,16 @@ Singleton {
         }
 
         property Component opacity: Component {
-            NumberAnimation{
+            NumberAnimation {
                 duration: 120
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: transition.easing.bezierCurve.easeIn
+            }
+        }
+
+        property Component resize: Component { // TODO: better curve needed
+            NumberAnimation {
+                duration: 200
                 easing.type: Easing.BezierSpline
                 easing.bezierCurve: transition.easing.bezierCurve.easeIn
             }
@@ -135,6 +155,14 @@ Singleton {
         property Component anchor: Component {
             AnchorAnimation {
                 duration: 160
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: transition.easing.bezierCurve.easeIn
+            }
+        }
+
+        property Component longMovement: Component {
+            NumberAnimation {
+                duration: 1000
                 easing.type: Easing.BezierSpline
                 easing.bezierCurve: transition.easing.bezierCurve.easeIn
             }
