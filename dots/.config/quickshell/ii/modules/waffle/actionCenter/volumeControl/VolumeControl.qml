@@ -12,10 +12,9 @@ import qs.modules.waffle.actionCenter
 
 Item {
     id: root
-    implicitWidth: 360
-    implicitHeight: 352
+    property bool output: true
 
-    PageColumn {
+    WPanelPageColumn {
         anchors.fill: parent
 
         BodyRectangle {
@@ -29,7 +28,7 @@ Item {
 
                 HeaderRow {
                     Layout.fillWidth: true
-                    title: qsTr("Sound output")
+                    title: root.output ? Translation.tr("Sound output") : Translation.tr("Sound input")
                 }
 
                 StyledFlickable {
@@ -49,7 +48,7 @@ Item {
             }
         }
 
-        Separator {}
+        WPanelSeparator {}
 
         FooterRectangle {
             WButton {
@@ -58,7 +57,6 @@ Item {
                     verticalCenter: parent.verticalCenter
                     left: parent.left
                 }
-                inset: 0
                 implicitHeight: 40
                 implicitWidth: contentItem.implicitWidth + 30
                 color: "transparent"
@@ -74,7 +72,7 @@ Item {
                     WText {
                         id: buttonText
                         anchors.centerIn: parent
-                        text: qsTr("More volume settings")
+                        text: Translation.tr("More volume settings")
                         color: moreSettingsButton.pressed ? Looks.colors.fg : Looks.colors.fg1
                     }
                 }
@@ -86,51 +84,52 @@ Item {
         spacing: 4
 
         SectionText {
-            text: qsTr("Output device")
+            text: root.output ? Translation.tr("Output device") : Translation.tr("Input device")
         }
 
         Repeater {
             model: ScriptModel {
-                values: Audio.outputDevices
+                values: root.output ? Audio.outputDevices : Audio.inputDevices
             }
             delegate: WChoiceButton {
                 required property var modelData
                 icon.name: WIcons.audioDeviceIcon(modelData)
                 text: Audio.friendlyDeviceName(modelData)
-                checked: Audio.sink === modelData
+                checked: (root.output ? Audio.sink : Audio.source) === modelData
                 onClicked: {
-                    Audio.setDefaultSink(modelData);
+                    if (root.output) Audio.setDefaultSink(modelData);
+                    else Audio.setDefaultSource(modelData);
                 }
             }
         }
 
-        Separator { 
-            visible: EasyEffects.available
+        WPanelSeparator {
+            visible: EasyEffects.available && root.output
             color: Looks.colors.bg2Hover
         }
-        
+
         ////////////////////////////////////////////////////////////
 
         SectionText {
-            visible: EasyEffects.available
-            text: qsTr("Sound effects")
+            visible: EasyEffects.available && root.output
+            text: Translation.tr("Sound effects")
         }
 
         WChoiceButton {
-            visible: EasyEffects.available
+            visible: EasyEffects.available && root.output
             text: Translation.tr("Off")
             checked: !EasyEffects.active
             onClicked: EasyEffects.disable()
         }
 
         WChoiceButton {
-            visible: EasyEffects.available
+            visible: EasyEffects.available && root.output
             text: "EasyEffects"
             checked: EasyEffects.active
             onClicked: EasyEffects.enable()
         }
 
-        Separator {
+        WPanelSeparator {
             color: Looks.colors.bg2Hover
         }
 
@@ -138,18 +137,18 @@ Item {
 
         SectionText {
             visible: EasyEffects.available
-            text: qsTr("Volume mixer")
+            text: Translation.tr("Volume mixer")
         }
 
         VolumeEntry {
-            node: Audio.sink
-            icon: "speaker"
+            node: root.output ? Audio.sink : Audio.source
+            icon: root.output ? "speaker" : "mic-on"
             monochrome: true
         }
 
         Repeater {
             model: ScriptModel {
-                values: Audio.outputAppNodes
+                values: root.output ? Audio.outputAppNodes : Audio.inputAppNodes
             }
             delegate: VolumeEntry {
                 required property var modelData

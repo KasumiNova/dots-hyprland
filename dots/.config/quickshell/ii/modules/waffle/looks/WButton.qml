@@ -17,12 +17,14 @@ Button {
     property color colBackgroundToggledActive: Looks.colors.accentActive
     property color colForeground: Looks.colors.fg
     property color colForegroundToggled: Looks.colors.accentFg
+    property color colForegroundDisabled: ColorUtils.transparentize(Looks.colors.subfg, 0.4)
     property alias backgroundOpacity: backgroundRect.opacity
     property color color: {
+        if (!root.enabled) return colBackground;
         if (root.checked) {
             if (root.down) {
                 return root.colBackgroundToggledActive;
-            } else if (root.hovered && !root.down) {
+            } else if (root.hovered) {
                 return root.colBackgroundToggledHover;
             } else {
                 return root.colBackgroundToggled;
@@ -30,13 +32,17 @@ Button {
         }
         if (root.down) {
             return root.colBackgroundActive;
-        } else if (root.hovered && !root.down) {
+        } else if (root.hovered) {
             return root.colBackgroundHover;
         } else {
             return root.colBackground;
         }
     }
-    property color fgColor: root.checked ? root.colForegroundToggled : root.colForeground
+    property color fgColor: {
+        if (root.checked) return root.colForegroundToggled
+        if (root.enabled) return root.colForeground
+        return root.colForegroundDisabled
+    }
     property alias horizontalAlignment: buttonText.horizontalAlignment
     font {
         family: Looks.font.family.ui
@@ -47,10 +53,11 @@ Button {
     // Hover stuff
     signal hoverTimedOut
     property bool shouldShowTooltip: false
+    ToolTip.delay: 400
     property Timer hoverTimer: Timer {
         id: hoverTimer
         running: root.hovered
-        interval: 400
+        interval: root.ToolTip.delay
         onTriggered: {
             root.hoverTimedOut();
         }
@@ -72,7 +79,7 @@ Button {
     property var altAction: () => {}
     property var middleClickAction: () => {}
 
-    property real inset: 2
+    property real inset: 0
     topInset: inset
     bottomInset: inset
     leftInset: inset
@@ -85,8 +92,8 @@ Button {
     property alias border: backgroundRect.border
     horizontalPadding: 10
     verticalPadding: 6
-    implicitHeight: contentItem.implicitHeight + verticalPadding * 2
-    implicitWidth: contentItem.implicitWidth + horizontalPadding * 2
+    implicitHeight: contentItem.implicitHeight + verticalPadding * 2 + topInset + bottomInset
+    implicitWidth: contentItem.implicitWidth + horizontalPadding * 2 + leftInset + rightInset
 
     background: Rectangle {
         id: backgroundRect
@@ -128,7 +135,7 @@ Button {
             FluentIcon {
                 id: buttonIcon
                 monochrome: true
-                implicitSize: 16
+                implicitSize: 18
                 Layout.leftMargin: root.iconLeftMargin
                 Layout.fillWidth: false
                 Layout.alignment: Qt.AlignVCenter

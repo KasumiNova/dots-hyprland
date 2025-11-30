@@ -16,6 +16,7 @@ Button {
     property color color
     property color colForeground: Looks.colors.fg
     color: {
+        if (!root.enabled) return colBackground;
         if (root.down) {
             return root.colBackgroundActive
         } else if ((root.hovered && !root.down) || root.checked) {
@@ -24,8 +25,10 @@ Button {
             return root.colBackground
         }
     }
+    property alias radius: background.radius
 
     background: Rectangle {
+        id: background
         radius: Looks.radius.medium
         color: root.color
     }

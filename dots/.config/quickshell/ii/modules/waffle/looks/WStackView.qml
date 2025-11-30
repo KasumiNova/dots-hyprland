@@ -4,16 +4,14 @@ import qs.modules.waffle.looks
 
 StackView {
     id: root
-    property real moveDistance: 20
-    property int pushDuration: 100
+    property real moveDistance: 30
+    property int pushDuration: 200
+    property int fadeDuration: 80
     property list<real> bezierCurve: Looks.transition.easing.bezierCurve.easeIn
+    property list<real> fadeBezierCurve: Looks.transition.easing.bezierCurve.easeInOut
     clip: true
 
-    property alias color: background.color
-    background: Rectangle {
-        id: background
-        color: Looks.colors.bgPanelBody
-    }
+    background: null
 
     pushEnter: Transition {
         XAnimator {
@@ -27,9 +25,9 @@ StackView {
             properties: "opacity"
             from: 0
             to: 1
-            duration: root.pushDuration
+            duration: root.fadeDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.bezierCurve
+            easing.bezierCurve: root.fadeBezierCurve
         }
     }
     pushExit: Transition {
@@ -44,9 +42,9 @@ StackView {
             properties: "opacity"
             from: 1
             to: 0
-            duration: root.pushDuration
+            duration: root.fadeDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.bezierCurve
+            easing.bezierCurve: root.fadeBezierCurve
         }
     }
     popEnter: Transition {
@@ -61,9 +59,9 @@ StackView {
             properties: "opacity"
             from: 0
             to: 1
-            duration: root.pushDuration
+            duration: root.fadeDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.bezierCurve
+            easing.bezierCurve: root.fadeBezierCurve
         }
     }
     popExit: Transition {
@@ -78,9 +76,9 @@ StackView {
             properties: "opacity"
             from: 1
             to: 0
-            duration: root.pushDuration
+            duration: root.fadeDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.bezierCurve
+            easing.bezierCurve: root.fadeBezierCurve
         }
     }
 }

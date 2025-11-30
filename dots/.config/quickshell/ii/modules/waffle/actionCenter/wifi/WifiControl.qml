@@ -14,14 +14,12 @@ import qs.modules.waffle.actionCenter
 
 Item {
     id: root
-    implicitWidth: 360
-    implicitHeight: 352
 
     Component.onCompleted: {
         Network.rescanWifi();
     }
 
-    PageColumn {
+    WPanelPageColumn {
         anchors.fill: parent
 
         BodyRectangle {
@@ -37,29 +35,31 @@ Item {
                     implicitHeight: headerRow.implicitHeight
                     Layout.fillWidth: true
                     spacing: 0
-                    HeaderRow {
-                        id: headerRow
+                    RowLayout {
                         Layout.fillWidth: true
-                        title: qsTr("Wi-Fi")
+                        spacing: 0
+                        HeaderRow {
+                            id: headerRow
+                            Layout.fillWidth: true
+                            title: Translation.tr("Wi-Fi")
+                        }
+                        WSwitch {
+                            id: toggleSwitch
+                            Layout.rightMargin: 12
+                            checked: Network.wifiStatus !== "disabled"
+                            onCheckedChanged: {
+                                Network.enableWifi(checked);
+                                Network.rescanWifi();
+                            }
+                        }
                     }
                     FadeLoader {
                         Layout.leftMargin: -4
                         Layout.rightMargin: -4
                         Layout.fillWidth: true
                         shown: Network.wifiScanning
-                        sourceComponent: StyledIndeterminateProgressBar {
-                            id: progressBar
-                            implicitHeight: 3
-                            background: null
-                            layer.enabled: true
-                            layer.effect: OpacityMask {
-                                maskSource: Rectangle {
-                                    width: progressBar.width
-                                    height: progressBar.height
-                                    radius: progressBar.height / 2
-                                }
-                            }
-                        }
+                        visible: true
+                        sourceComponent: WIndeterminateProgressBar {}
                     }
                 }
 
@@ -86,34 +86,32 @@ Item {
             }
         }
 
-        Separator {}
+        WPanelSeparator {}
 
         FooterRectangle {
-            WButton {
-                id: moreSettingsButton
+            FooterMoreButton {
                 anchors {
                     verticalCenter: parent.verticalCenter
                     left: parent.left
                 }
-                inset: 0
-                implicitHeight: 40
-                implicitWidth: contentItem.implicitWidth + 30
-                color: "transparent"
-
+                text: Translation.tr("More Internet settings")
                 onClicked: {
                     Quickshell.execDetached(["qs", "-p", Quickshell.shellPath(""), "ipc", "call", "sidebarLeft", "toggle"]);
                     Quickshell.execDetached(["bash", "-c", Config.options.apps.network]);
                 }
+            }
+            WBorderlessButton {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 12
+                enabled: !Network.wifiScanning
 
-                contentItem: Item {
-                    anchors.centerIn: parent
-                    implicitWidth: buttonText.implicitWidth
-                    WText {
-                        id: buttonText
-                        anchors.centerIn: parent
-                        text: qsTr("More Internet settings")
-                        color: moreSettingsButton.pressed ? Looks.colors.fg : Looks.colors.fg1
-                    }
+                onClicked: {
+                    Network.rescanWifi();
+                }
+
+                contentItem: FluentIcon {
+                    icon: "arrow-counterclockwise"
                 }
             }
         }
