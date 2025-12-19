@@ -18,6 +18,33 @@ Singleton {
     property string audioTheme: Config.options.sounds.theme
     property real value: sink?.audio.volume ?? 0
     
+    function friendlyDeviceName(node) {
+        return (node.nickname || node.description || Translation.tr("Unknown"));
+    }
+    function appNodeDisplayName(node) {
+        return (node.properties["application.name"] || node.description || node.name)
+    }
+
+    // Lists
+    function correctType(node, isSink) {
+        return (node.isSink === isSink) && node.audio
+    }
+    function appNodes(isSink) {
+        return Pipewire.nodes.values.filter((node) => { // Should be list<PwNode> but it breaks ScriptModel
+            return root.correctType(node, isSink) && node.isStream
+        })
+    }
+    function devices(isSink) {
+        return Pipewire.nodes.values.filter(node => {
+            return root.correctType(node, isSink) && !node.isStream
+        })
+    }
+    readonly property list<var> outputAppNodes: root.appNodes(true)
+    readonly property list<var> inputAppNodes: root.appNodes(false)
+    readonly property list<var> outputDevices: root.devices(true)
+    readonly property list<var> inputDevices: root.devices(false)
+
+    // Signals
     signal sinkProtectionTriggered(string reason);
 
     function toggleMute() {

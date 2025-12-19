@@ -99,7 +99,7 @@ ListView {
                 to: 1,
             }),
         ] : []
-    } 
+    }
 
     move: Transition {
         animations: root.animateMovement ? [

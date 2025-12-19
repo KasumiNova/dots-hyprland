@@ -129,6 +129,7 @@ Singleton {
                 }
                 property JsonObject palette: JsonObject {
                     property string type: "auto" // Allowed: auto, scheme-content, scheme-expressive, scheme-fidelity, scheme-fruit-salad, scheme-monochrome, scheme-neutral, scheme-rainbow, scheme-tonal-spot
+                    property string accentColor: ""
                 }
             }
 
@@ -144,7 +145,9 @@ Singleton {
 
             property JsonObject apps: JsonObject {
                 property string bluetooth: "kcmshell6 kcm_bluetooth"
-                property string network: "kitty -1 fish -c nmtui"
+                property string changePassword: "kitty -1 --hold=yes fish -i -c 'passwd'"
+                property string network: "kcmshell6 kcm_networkmanagement"
+                property string manageUser: "kcmshell6 kcm_users"
                 property string networkEthernet: "kcmshell6 kcm_networkmanagement"
                 property string taskManager: "plasma-systemmonitor --page-name Processes"
                 property string terminal: "kitty -1" // This is only for shell actions
@@ -332,6 +335,10 @@ Singleton {
                 }
             }
 
+            property JsonObject launcher: JsonObject {
+                property list<string> pinnedApps: [ "org.kde.dolphin", "kitty", "cmake-gui"]
+            }
+
             property JsonObject light: JsonObject {
                 property JsonObject night: JsonObject {
                     property bool automatic: true
@@ -398,6 +405,8 @@ Singleton {
                 property real scale: 0.18 // Relative to screen size
                 property real rows: 2
                 property real columns: 5
+                property bool orderRightLeft: false
+                property bool orderBottomUp: false
                 property bool centerIcons: true
             }
 
@@ -417,6 +426,9 @@ Singleton {
                 property JsonObject circle: JsonObject {
                     property int strokeWidth: 6
                     property int padding: 10
+                }
+                property JsonObject annotation: JsonObject {
+                    property bool useSatty: false
                 }
             }
 
@@ -575,7 +587,11 @@ Singleton {
                 // Animations on Windoes are kinda janky. Setting the following to
                 // false will make (some) stuff also be like that for accuracy. 
                 // Example: the right-click menu of the Start button
-                property bool smootherAnimations: true
+                property JsonObject tweaks: JsonObject {
+                    property bool switchHandlePositionFix: true
+                    property bool smootherMenuAnimations: true
+                    property bool smootherSearchBar: true
+                }
                 property JsonObject bar: JsonObject {
                     property bool bottom: true
                     property bool leftAlignApps: false

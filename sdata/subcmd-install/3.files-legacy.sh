@@ -79,7 +79,7 @@ esac
 case "${SKIP_FISH}" in
   true) sleep 0;;
   *)
-    warning_rsync_delete; v rsync -av --delete dots/.config/fish/ "$XDG_CONFIG_HOME"/fish/
+    install_dir__sync_exclude dots/.config/fish "$XDG_CONFIG_HOME"/fish "conf.d"
     ;;
 esac
 
