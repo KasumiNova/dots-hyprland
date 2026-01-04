@@ -11,7 +11,66 @@ Button {
 
     property color colBackgroundHover: Looks.colors.bg2Hover
     property color colBackgroundActive: Looks.colors.bg2Active
-    property color colBackground: ColorUtils.transparentize(Looks.colors.bg1)
+    property color colBackgroundToggled: Looks.colors.accent
+    property color colBackgroundToggledHover: Looks.colors.accentHover
+    property color colBackgroundToggledActive: Looks.colors.accentActive
+    property color colForeground: Looks.colors.fg
+    property color colForegroundToggled: Looks.colors.accentFg
+    property color colForegroundDisabled: ColorUtils.transparentize(Looks.colors.subfg, 0.4)
+    property alias backgroundOpacity: backgroundRect.opacity
+    property color color: {
+        if (!root.enabled) return colBackground;
+        if (root.checked) {
+            if (root.down) {
+                return root.colBackgroundToggledActive;
+            } else if (root.hovered) {
+                return root.colBackgroundToggledHover;
+            } else {
+                return root.colBackgroundToggled;
+            }
+        }
+        if (root.down) {
+            return root.colBackgroundActive;
+        } else if (root.hovered) {
+            return root.colBackgroundHover;
+        } else {
+            return root.colBackground;
+        }
+    }
+    property color fgColor: {
+        if (!root.enabled) return root.colForegroundDisabled
+        if (root.checked) return root.colForegroundToggled
+        if (root.enabled) return root.colForeground
+        return root.colForeground
+    }
+    property alias horizontalAlignment: buttonText.horizontalAlignment
+    font {
+        family: Looks.font.family.ui
+        pixelSize: Looks.font.pixelSize.large
+        weight: Looks.font.weight.regular
+    }
+
+    // Hover stuff
+    signal hoverTimedOut
+    property bool shouldShowTooltip: false
+    ToolTip.delay: 400
+    property Timer hoverTimer: Timer {
+        id: hoverTimer
+        running: root.hovered
+        interval: root.ToolTip.delay
+        onTriggered: {
+            root.hoverTimedOut();
+        }
+    }
+    onHoverTimedOut: {
+        root.shouldShowTooltip = true;
+    }
+    onHoveredChanged: {
+        if (!root.hovered) {
+            root.shouldShowTooltip = false;
+            root.hoverTimer.stop();
+        }
+    }
 
     property alias monochromeIcon: buttonIcon.monochrome
     property bool forceShowIcon: false
