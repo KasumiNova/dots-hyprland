@@ -119,17 +119,17 @@ Rectangle {
             }
         }
 
-        anchors.fill: parent 
-        height: tabStack.height
-        spacing: 10
-        
+        anchors.fill: parent
+        // implicitHeight: tabStack.implicitHeight
+        spacing: 20
+
         // Navigation rail
         Item {
             Layout.fillHeight: true
             Layout.fillWidth: false
             Layout.leftMargin: 10
             Layout.topMargin: 10
-            width: tabBar.width
+            implicitWidth: tabBar.implicitWidth
             // Navigation rail buttons
             NavigationRailTabArray {
                 id: tabBar
