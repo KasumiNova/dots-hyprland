@@ -1,11 +1,3 @@
 [submodule "dots/.config/quickshell/ii/modules/common/widgets/shapes"]
 	path = dots/.config/quickshell/ii/modules/common/widgets/shapes
 	url = https://github.com/end-4/rounded-polygon-qmljs.git
-
-[submodule "sdist/arch/illogical-impulse-microtex-git/src/MicroTeX"]
-	path = sdist/arch/illogical-impulse-microtex-git/src/MicroTeX
-	url = https://github.com/NanoMichael/MicroTeX.git
-
-[submodule "sdist/arch/illogical-impulse-quickshell-git/src/quickshell"]
-	path = sdist/arch/illogical-impulse-quickshell-git/src/quickshell
-	url = https://git.outfoxxed.me/quickshell/quickshell.git
