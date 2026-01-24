@@ -41,7 +41,7 @@ Item {
             visible: Config.options.bar.utilButtons.showScreenRecord
             sourceComponent: CircleUtilButton {
                 Layout.alignment: Qt.AlignVCenter
-                onClicked: Quickshell.execDetached([Directories.recordScriptPath, "--sound"])
+                onClicked: Quickshell.execDetached([Directories.recordScriptPath])
                 MaterialSymbol {
                     horizontalAlignment: Qt.AlignHCenter
                     fill: 1
@@ -146,7 +146,7 @@ Item {
                     fill: 0
                     text: switch(PowerProfiles.profile) {
                         case PowerProfile.PowerSaver: return "energy_savings_leaf"
-                        case PowerProfile.Balanced: return "settings_slow_motion"
+                        case PowerProfile.Balanced: return "airwave"
                         case PowerProfile.Performance: return "local_fire_department"
                     }
                     iconSize: Appearance.font.pixelSize.large

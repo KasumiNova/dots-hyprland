@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Services.UPower
 import qs.services
 
 Singleton {
@@ -21,17 +22,18 @@ Singleton {
     }
 
     property string internetIcon: {
-        if (Network.ethernet) return "ethernet";
+        if (Network.ethernet)
+            return "ethernet";
         if (Network.wifiEnabled) {
             const strength = Network.networkStrength;
-            if (strength > 75) return "wifi-1";
-            if (strength > 50) return "wifi-2";
-            if (strength > 25) return "wifi-3";
-            return "wifi-4";
+            return wifiIconForStrength(strength);
         }
-        if (Network.wifiStatus === "connecting") return "wifi-4";
-        if (Network.wifiStatus === "disconnected") return "wifi-off";
-        if (Network.wifiStatus === "disabled") return "wifi-off";
+        if (Network.wifiStatus === "connecting")
+            return "wifi-4";
+        if (Network.wifiStatus === "disconnected")
+            return "wifi-off";
+        if (Network.wifiStatus === "disabled")
+            return "wifi-off";
         return "wifi-warning";
     }
 
@@ -54,7 +56,7 @@ Singleton {
         const muted = Audio.sink?.audio.muted ?? false;
         const volume = Audio.sink?.audio.volume ?? 0;
         if (muted)
-            return volume > 0 ? "speaker-off" : "speaker-none";
+            return "speaker-mute";
         if (volume == 0)
             return "speaker-none";
         if (volume < 0.5)

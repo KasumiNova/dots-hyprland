@@ -1,7 +1,11 @@
+pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.Material
 import QtQuick.Controls
+import QtQuick.Layouts
+import qs.services
 import qs.modules.common
+import qs.modules.common.widgets
+import qs.modules.common.functions
 
 ComboBox {
     id: root

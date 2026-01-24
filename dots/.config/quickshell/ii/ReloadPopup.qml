@@ -1,7 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import Qt5Compat.GraphicalEffects
+import Quickshell
+import Quickshell.Wayland
 
 Scope {
 	id: root
@@ -40,6 +41,8 @@ Scope {
 
 			implicitWidth: rect.width + shadow.radius * 2
 			implicitHeight: rect.height + shadow.radius * 2
+
+			WlrLayershell.namespace: "quickshell:reloadPopup"
 
 			// color blending is a bit odd as detailed in the type reference.
 			color: "transparent"

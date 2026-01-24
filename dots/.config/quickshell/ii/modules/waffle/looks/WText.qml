@@ -14,4 +14,6 @@ Text {
         weight: Looks.font.weight.regular
         variableAxes: Looks.font.variableAxes.ui
     }
+
+    linkColor: Looks.colors.link
 }

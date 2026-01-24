@@ -8,6 +8,8 @@ import qs.modules.common.functions
 
 Singleton {
     id: root
+    property QtObject darkColors
+    property QtObject lightColors
     property QtObject colors
     property QtObject radius
     property QtObject font
@@ -190,8 +192,16 @@ Singleton {
         }
 
         property Component opacity: Component {
-            NumberAnimation{
+            NumberAnimation {
                 duration: 120
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: transition.easing.bezierCurve.easeIn
+            }
+        }
+
+        property Component resize: Component { // TODO: better curve needed
+            NumberAnimation {
+                duration: 200
                 easing.type: Easing.BezierSpline
                 easing.bezierCurve: transition.easing.bezierCurve.easeIn
             }
@@ -234,6 +244,22 @@ Singleton {
                 duration: 160
                 easing.type: Easing.BezierSpline
                 easing.bezierCurve: transition.easing.bezierCurve.easeIn
+            }
+        }
+
+        property Component longMovement: Component {
+            NumberAnimation {
+                duration: 1000
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: transition.easing.bezierCurve.easeIn
+            }
+        }
+
+        property Component scroll: Component {
+            NumberAnimation {
+                duration: 250
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: [0.0, 0.0, 0.25, 1.0, 1, 1]
             }
         }
     }

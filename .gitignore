@@ -4,10 +4,6 @@
 # Ignore Python cache files
 __pycache__/
 *.py[cod]
-dots/.config/quickshell/ii/.qmlls.ini
-.update-lock
-/sdist
-/sdata/dist-arch/illogical-impulse-quickshell-git/quickshell/
 
 /dots/.config/quickshell/ii/.qmlls.ini
 
@@ -19,3 +15,6 @@ dots/.config/quickshell/ii/.qmlls.ini
 
 # Emacs auto backup file
 *~
+
+# code workspace
+*.code-workspace

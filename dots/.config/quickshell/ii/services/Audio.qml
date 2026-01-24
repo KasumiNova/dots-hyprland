@@ -11,6 +11,7 @@ import Quickshell.Services.Pipewire
 Singleton {
     id: root
 
+    // Misc props
     property bool ready: Pipewire.defaultAudioSink?.ready ?? false
     property PwNode sink: Pipewire.defaultAudioSink
     property PwNode source: Pipewire.defaultAudioSource
@@ -47,6 +48,7 @@ Singleton {
     // Signals
     signal sinkProtectionTriggered(string reason);
 
+    // Controls
     function toggleMute() {
         Audio.sink.audio.muted = !Audio.sink.audio.muted
     }
@@ -66,8 +68,16 @@ Singleton {
         const step = currentVolume < 0.1 ? 0.01 : 0.02 || 0.2;
         Audio.sink.audio.volume -= step;
     }
-    
 
+    function setDefaultSink(node) {
+        Pipewire.preferredDefaultAudioSink = node;
+    }
+
+    function setDefaultSource(node) {
+        Pipewire.preferredDefaultAudioSource = node;
+    }
+
+    // Internals
     PwObjectTracker {
         objects: [sink, source]
     }
