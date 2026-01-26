@@ -16,6 +16,9 @@ Singleton {
     property bool sloppySearch: Config.options?.search.sloppy ?? false
     property real scoreThreshold: 0.2
     property list<string> entries: []
+
+    // cliphist stores history in a sqlite DB under XDG_CACHE_HOME (usually ~/.cache/cliphist/db)
+    readonly property string cliphistDbPath: FileUtils.trimFileProtocol(`${Directories.cache}/cliphist/db`)
     readonly property var preparedEntries: entries.map(a => ({
         name: Fuzzy.prepare(`${a.replace(/^\s*\S+\s+/, "")}`),
         entry: a
@@ -53,7 +56,8 @@ Singleton {
 
     function copy(entry) {
         if (root.cliphistBinary.includes("cliphist")) // Classic cliphist
-            Quickshell.execDetached(["bash", "-c", `printf '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy`]);
+            // IMPORTANT: use printf '%s' to avoid treating '%' in clipboard content as format specifiers.
+            Quickshell.execDetached(["bash", "-c", `printf '%s' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy`]);
         else { // Stash
             const entryNumber = entry.split("\t")[0];
             Quickshell.execDetached(["bash", "-c", `${root.cliphistBinary} decode ${entryNumber} | wl-copy`]);
@@ -62,7 +66,7 @@ Singleton {
 
     function paste(entry) {
         if (root.cliphistBinary.includes("cliphist")) // Classic cliphist
-            Quickshell.execDetached(["bash", "-c", `printf '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && wl-paste`]);
+            Quickshell.execDetached(["bash", "-c", `printf '%s' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && wl-paste`]);
         else { // Stash
             const entryNumber = entry.split("\t")[0];
             Quickshell.execDetached(["bash", "-c", `${root.cliphistBinary} decode ${entryNumber} | wl-copy; ${root.pressPasteCommand}`]);
@@ -75,7 +79,7 @@ Singleton {
             if (!isImage) return true;
             return entryIsImage(entry);
         }).slice(0, count)
-        const pasteCommands = [...targetEntries].reverse().map(entry => `printf '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && sleep ${root.pasteDelay} && ${root.pressPasteCommand}`)
+        const pasteCommands = [...targetEntries].reverse().map(entry => `printf '%s' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && sleep ${root.pasteDelay} && ${root.pressPasteCommand}`)
         // Act
         Quickshell.execDetached(["bash", "-c", pasteCommands.join(` && sleep ${root.pasteDelay} && `)]);
     }
@@ -100,13 +104,25 @@ Singleton {
 
     Process {
         id: wipeProc
-        command: [root.cliphistBinary, "wipe"]
+        // Also clear wl-clipboard and remove cliphist db files to reset entry sequence numbers.
+        command: ["bash", "-c", (() => {
+            if (root.cliphistBinary.includes("cliphist")) {
+                const db = StringUtils.shellSingleQuoteEscape(root.cliphistDbPath);
+                return `${root.cliphistBinary} wipe; `
+                    + `(wl-copy --clear 2>/dev/null || wl-copy </dev/null || true); `
+                    + `rm -f '${db}' '${db}-shm' '${db}-wal' || true`;
+            }
+            // Fallback for stash/other implementations
+            return `${root.cliphistBinary} wipe; (wl-copy --clear 2>/dev/null || wl-copy </dev/null || true)`;
+        })()]
         onExited: (exitCode, exitStatus) => {
             root.refresh();
         }
     }
 
     function wipe() {
+        // Clear UI immediately while the wipe is running.
+        root.entries = [];
         wipeProc.running = true;
     }
 

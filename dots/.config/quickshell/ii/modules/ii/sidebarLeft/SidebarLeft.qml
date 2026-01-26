@@ -134,6 +134,9 @@ Scope { // Scope
             }
             Rectangle {
                 id: sidebarLeftBackground
+                // Wayland 分数缩放下，Qt 的 Screen.devicePixelRatio 可能仍为 1。
+                // 使用 Hyprland 的 monitor.scale 作为真实输出缩放系数，供子组件做 HiDPI 纹理尺寸。
+                property real monitorScale: (Hyprland.monitorFor(panelWindow.screen)?.scale ?? 1)
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.topMargin: Appearance.sizes.hyprlandGapsOut

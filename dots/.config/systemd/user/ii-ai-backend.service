@@ -1,0 +1,16 @@
+[Unit]
+Description=ii AI Backend (OpenAI-compatible proxy)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.config/quickshell/ii/ai/server.py
+Restart=always
+RestartSec=2
+Environment=II_AI_BACKEND_HOST=127.0.0.1
+Environment=II_AI_BACKEND_PORT=15333
+# API settings are loaded from file on startup
+EnvironmentFile=-%h/.config/quickshell/ii/ai/env
+
+[Install]
+WantedBy=default.target

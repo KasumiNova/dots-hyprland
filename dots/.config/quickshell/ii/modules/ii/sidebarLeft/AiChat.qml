@@ -7,15 +7,57 @@ import qs.modules.ii.sidebarLeft.aiChat
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
+import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 
 Item {
     id: root
+    // Guard against teardown races during reload.
+    property bool _destroying: false
     property real padding: 4
     property var inputField: messageInputField
     property string commandPrefix: "/"
+
+    // Optional: a parent item above this page (e.g. SidebarLeftContent) used to host dialogs.
+    // This avoids being clipped by the SwipeView page container.
+    property Item dialogOverlayParent: null
+
+    property bool showRequestLog: false
+
+    // Prevent input/suggestions from visually overflowing the page bounds.
+    clip: true
+
+    // Visual API settings dialog (OpenAI-compatible base URL + API key)
+    property bool showApiSettingsDialog: false
+    property string apiBaseUrlDraft: ""
+    property string apiKeyDraft: ""
+    property bool apiKeyVisible: false
+
+    function openApiSettings() {
+        // Best-effort: preload keyring so the dialog can show existing values.
+        if (!KeyringStorage.loaded) KeyringStorage.fetchKeyringData();
+        root.apiBaseUrlDraft = Ai.getOpenAiBaseUrl();
+        root.apiKeyDraft = Ai.openaiApiKey ?? "";
+        root.apiKeyVisible = false;
+        root.showApiSettingsDialog = true;
+    }
+
+    Component.onDestruction: {
+        // Mark as destroying first so any in-flight callbacks can bail out.
+        root._destroying = true;
+        // On reload, this page can be destroyed while subprocesses/dialog loaders are active.
+        // Stop them explicitly to reduce teardown races inside QS/Qt.
+        try { root.showApiSettingsDialog = false; } catch (e) {}
+        try { root.showRequestLog = false; } catch (e) {}
+        try { if (decodeImageAndAttachProc.running) decodeImageAndAttachProc.running = false; } catch (e) {}
+    }
+
+    // Set by parent sidebar content to match the actual output scale (e.g. Hyprland monitor.scale)
+    property real outputScale: 1
+
+    readonly property real __dpr: (Screen.devicePixelRatio || 1)
+    readonly property bool __fractionalScale: Math.abs(__dpr - Math.round(__dpr)) > 0.001
 
     property var suggestionQuery: ""
     property var suggestionList: []
@@ -39,6 +81,13 @@ Item {
         }
         if ((event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier) && event.key === Qt.Key_O) {
             Ai.clearMessages();
+        }
+        // Ctrl+Z to undo delete (only when input field is empty to not interfere with text editing)
+        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Z && messageInputField.text.length === 0) {
+            if (Ai.canUndoDelete) {
+                Ai.undoLastDelete();
+                event.accepted = true;
+            }
         }
     }
 
@@ -97,26 +146,69 @@ Item {
         },
         {
             name: "save",
-            description: Translation.tr("Save chat"),
+            description: Translation.tr("Rename current chat"),
             execute: args => {
-                const joinedArgs = args.join(" ");
-                if (joinedArgs.trim().length == 0) {
+                const joinedArgs = args.join(" ").trim();
+                if (joinedArgs.length === 0) {
                     Ai.addMessage(Translation.tr("Usage: %1save CHAT_NAME").arg(root.commandPrefix), Ai.interfaceRole);
                     return;
                 }
-                Ai.saveChat(joinedArgs);
+                Ai.renameCurrentChat(joinedArgs);
             }
         },
         {
             name: "load",
-            description: Translation.tr("Load chat"),
+            description: Translation.tr("Load a chat by ID"),
             execute: args => {
-                const joinedArgs = args.join(" ");
-                if (joinedArgs.trim().length == 0) {
-                    Ai.addMessage(Translation.tr("Usage: %1load CHAT_NAME").arg(root.commandPrefix), Ai.interfaceRole);
+                if (args.length === 0) {
+                    // List available chats
+                    Ai.refreshChatList();
+                    let msg = Translation.tr("Available chats:\n");
+                    for (const chat of Ai.chatList) {
+                        msg += `- **${chat.name || "Unnamed"}** (ID: ${chat.id})\n`;
+                    }
+                    msg += Translation.tr("\nUsage: %1load CHAT_ID").arg(root.commandPrefix);
+                    Ai.addMessage(msg, Ai.interfaceRole);
                     return;
                 }
-                Ai.loadChat(joinedArgs);
+                const chatId = parseInt(args[0]);
+                if (isNaN(chatId)) {
+                    Ai.addMessage(Translation.tr("Invalid chat ID. Usage: %1load CHAT_ID").arg(root.commandPrefix), Ai.interfaceRole);
+                    return;
+                }
+                Ai.loadChatById(chatId);
+            }
+        },
+        {
+            name: "new",
+            description: Translation.tr("Create a new chat"),
+            execute: args => {
+                const name = args.join(" ").trim();
+                Ai.createNewChat(name);
+            }
+        },
+        {
+            name: "delete",
+            description: Translation.tr("Delete current chat"),
+            execute: () => {
+                Ai.deleteCurrentChat();
+            }
+        },
+        {
+            name: "chats",
+            description: Translation.tr("List all chats"),
+            execute: () => {
+                Ai.refreshChatList();
+                let msg = Translation.tr("**Chats:**\n");
+                if (Ai.chatList.length === 0) {
+                    msg += Translation.tr("No chats found.");
+                } else {
+                    for (const chat of Ai.chatList) {
+                        const current = (chat.id === Ai.currentChatId) ? " ← current" : "";
+                        msg += `- **${chat.name || "Unnamed"}** (ID: ${chat.id})${current}\n`;
+                    }
+                }
+                Ai.addMessage(msg, Ai.interfaceRole);
             }
         },
         {
@@ -213,7 +305,10 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         }
 
         // Always scroll to bottom when user sends a message
+        messageListView.stickToBottom = true;
+        messageListView.__autoScrollingNow = true;
         messageListView.positionViewAtEnd();
+        messageListView.__autoScrollingNow = false;
     }
 
     Process {
@@ -226,6 +321,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
             decodeImageAndAttachProc.exec(["bash", "-c", `[ -f ${imageDecodeFilePath} ] || echo '${StringUtils.shellSingleQuoteEscape(entry)}' | ${Cliphist.cliphistBinary} decode > '${imageDecodeFilePath}'`]);
         }
         onExited: (exitCode, exitStatus) => {
+            if (root._destroying) return;
             if (exitCode === 0) {
                 Ai.attachFile(imageDecodeFilePath);
             } else {
@@ -266,6 +362,25 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         }
     }
 
+    function _scrollToBottomImmediate() {
+        if (!messageListView) return;
+        messageListView.stickToBottom = true;
+        messageListView.__autoScrollingNow = true;
+        // Prefer contentY to avoid ListView's positionViewAtEnd timing issues on initial layout.
+        messageListView.contentY = messageListView.__bottomContentY();
+        messageListView.__autoScrollingNow = false;
+    }
+
+    Connections {
+        target: Ai
+        function onMessagesLoaded() {
+            if (root._destroying) return;
+            // Run twice: first after model swap, second after delegates/layout finalize.
+            Qt.callLater(root._scrollToBottomImmediate);
+            Qt.callLater(root._scrollToBottomImmediate);
+        }
+    }
+
     component StatusSeparator: Rectangle {
         implicitWidth: 4
         implicitHeight: 4
@@ -283,16 +398,13 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
 
         Item {
             // Messages
+            id: messagesContainer
             Layout.fillWidth: true
             Layout.fillHeight: true
-            layer.enabled: true
-            layer.effect: OpacityMask {
-                maskSource: Rectangle {
-                    width: swipeView.width
-                    height: swipeView.height
-                    radius: Appearance.rounding.small
-                }
-            }
+
+            clip: true
+            // layer disabled to fix fractional scaling blur
+            layer.enabled: false
 
             StyledRectangularShadow {
                 z: 1
@@ -323,6 +435,104 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     anchors.centerIn: parent
                     spacing: 10
 
+                    // Animated mirrors for token values (so UI can smoothly transition).
+                    // requestAnim: per-request usage (drives ctx window)
+                    // sessionAnim: session totals (shown in token status item)
+                    QtObject {
+                        id: requestAnim
+                        property real input: Ai.requestTokenCount.input
+                        property real output: Ai.requestTokenCount.output
+                        property real total: Ai.requestTokenCount.total
+
+                        Behavior on input {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                        Behavior on output {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                        Behavior on total {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                    }
+
+                    QtObject {
+                        id: sessionAnim
+                        property real input: Ai.tokenCount.input
+                        property real output: Ai.tokenCount.output
+                        property real total: Ai.tokenCount.total
+
+                        Behavior on input {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                        Behavior on output {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                        Behavior on total {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+                    }
+
+                    function __fmtTokensCompact(n) {
+                        const v = Number(n);
+                        if (!isFinite(v) || v < 0) return "-";
+
+                        function fmtScaled(x, unit) {
+                            // Keep 1 decimal for small k-range to show e.g. 9.1k, 8.4k.
+                            // For larger numbers (>= 10k), avoid decimals: 128k, 42k.
+                            if (x < 10) return `${x.toFixed(1)}${unit}`;
+                            return `${Math.round(x)}${unit}`;
+                        }
+
+                        if (v >= 1000000) return fmtScaled(v / 1000000, "M");
+                        if (v >= 1000) return fmtScaled(v / 1000, "k");
+                        return `${Math.round(v)}`;
+                    }
+
+                    component TokenRing: Item {
+                        id: ring
+                        property real progress: 0
+                        property color colBg: Appearance.colors.colOutlineVariant
+                        property color colFg: Appearance.colors.colPrimary
+                        implicitWidth: 22
+                        implicitHeight: 22
+
+                        Canvas {
+                            id: canvas
+                            anchors.fill: parent
+                            onPaint: {
+                                const ctx = getContext("2d");
+                                ctx.reset();
+                                const w = width;
+                                const h = height;
+                                const cx = w/2;
+                                const cy = h/2;
+                                const r = Math.min(w, h)/2 - 2;
+                                const start = -Math.PI/2;
+                                const p = Math.max(0, Math.min(1, ring.progress || 0));
+
+                                ctx.lineWidth = 2;
+                                ctx.lineCap = "round";
+
+                                // bg circle
+                                ctx.strokeStyle = ring.colBg;
+                                ctx.beginPath();
+                                ctx.arc(cx, cy, r, 0, Math.PI*2);
+                                ctx.stroke();
+
+                                // fg arc
+                                if (p > 0) {
+                                    ctx.strokeStyle = ring.colFg;
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, r, start, start + Math.PI*2*p);
+                                    ctx.stroke();
+                                }
+                            }
+                        }
+
+                        onProgressChanged: canvas.requestPaint()
+                        Component.onCompleted: canvas.requestPaint()
+                    }
+
                     StatusItem {
                         icon: Ai.currentModelHasApiKey ? "key" : "key_off"
                         statusText: ""
@@ -334,14 +544,88 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         statusText: Ai.temperature.toFixed(1)
                         description: Translation.tr("Temperature\nChange with /temp VALUE")
                     }
+
+                    StatusSeparator {}
+                    MouseArea {
+                        id: ctxWindowItem
+                        hoverEnabled: true
+                        // Don't reference ids inside other components (StatusItem internals).
+                        // Use our own contents to size and align.
+                        implicitHeight: Math.max(22, ctxRow.implicitHeight)
+                        implicitWidth: ctxRow.implicitWidth
+                        Layout.alignment: Qt.AlignVCenter
+
+                        property int used: Math.round(requestAnim.total)
+                        property int limit: (Ai.models?.[Ai.currentModelId]?.context_length ?? 0)
+                        property real progressTarget: (limit > 0 && used >= 0) ? Math.min(1, used / limit) : 0
+                        property real progress: progressTarget
+
+                        Behavior on progress {
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                        }
+
+                        RowLayout {
+                            id: ctxRow
+                            spacing: 6
+                            Layout.alignment: Qt.AlignVCenter
+                            TokenRing {
+                                id: canvas
+                                progress: ctxWindowItem.progress
+                            }
+                            StyledText {
+                                font.pixelSize: Appearance.font.pixelSize.small
+                                color: Appearance.colors.colSubtext
+                                Layout.alignment: Qt.AlignVCenter
+                                text: {
+                                    if (ctxWindowItem.limit <= 0) return "-";
+                                    if (ctxWindowItem.used < 0) return `? / ${statusRowLayout.__fmtTokensCompact(ctxWindowItem.limit)}`;
+                                    return `${statusRowLayout.__fmtTokensCompact(ctxWindowItem.used)} / ${statusRowLayout.__fmtTokensCompact(ctxWindowItem.limit)}`;
+                                }
+                            }
+                        }
+
+                        StyledToolTip {
+                            text: {
+                                const used = ctxWindowItem.used;
+                                const limit = ctxWindowItem.limit;
+                                if (limit <= 0) return Translation.tr("Context window: unknown");
+                                if (used < 0) return Translation.tr("Context window\n? / %1 tokens").arg(limit);
+                                return Translation.tr("Context window\n%1 / %2 tokens (%3%)")
+                                    .arg(used)
+                                    .arg(limit)
+                                    .arg(Math.round(ctxWindowItem.progress * 100));
+                            }
+                            extraVisibleCondition: false
+                            alternativeVisibleCondition: ctxWindowItem.containsMouse
+                        }
+                    }
                     StatusSeparator {
-                        visible: Ai.tokenCount.total > 0
+                        visible: true
                     }
                     StatusItem {
-                        visible: Ai.tokenCount.total > 0
+                        visible: true
                         icon: "token"
-                        statusText: Ai.tokenCount.total
-                        description: Translation.tr("Total token count\nInput: %1\nOutput: %2").arg(Ai.tokenCount.input).arg(Ai.tokenCount.output)
+                        statusText: {
+                            if (sessionAnim.total < 0) return "I: - / O: -";
+                            const i = statusRowLayout.__fmtTokensCompact(sessionAnim.input);
+                            const o = statusRowLayout.__fmtTokensCompact(sessionAnim.output);
+                            return `I: ${i} / O: ${o}`;
+                        }
+                        description: {
+                            if (Ai.tokenCount.total < 0) return Translation.tr("Token usage unknown (provider did not return usage yet)");
+                            return Translation.tr("Token usage (Input/Output/Total)\nInput: %1\nOutput: %2\nTotal: %3")
+                                .arg(Ai.tokenCount.input)
+                                .arg(Ai.tokenCount.output)
+                                .arg(Ai.tokenCount.total);
+                        }
+                    }
+
+                    StatusSeparator {}
+                    StatusItem {
+                        icon: "bug_report"
+                        statusText: ""
+                        description: Translation.tr("Request log\nView the full payload sent to the server")
+                        onClicked: root.showRequestLog = true
                     }
                 }
             }
@@ -358,20 +642,84 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                 anchors.fill: parent
                 spacing: 10
                 popin: false
+                // Disable smooth scrolling animation here; auto-scroll should not visibly slide.
+                animateScroll: false
                 topMargin: statusBg.implicitHeight + statusBg.anchors.topMargin * 2
 
                 touchpadScrollFactor: Config.options.interactions.scrolling.touchpadScrollFactor * 1.4
                 mouseScrollFactor: Config.options.interactions.scrolling.mouseScrollFactor * 1.4
 
                 property int lastResponseLength: 0
+
+                // When true, keep the view pinned to bottom as new content streams in.
+                // Once the user scrolls up, disable pinning until they return to bottom.
+                property bool stickToBottom: true
+                property bool __autoScrollingNow: false
+                property real __lastContentY: 0
+
+                // Debounced auto-scroll: streaming updates can change contentHeight many times per second.
+                // Using Qt.callLater repeatedly can queue up many scroll calls and cause visible flicker.
+                property real __lastContentHeight: 0
+
+                function __bottomContentY() {
+                    return Math.max(0, contentHeight - height);
+                }
+                function __isNearBottom() {
+                    // A slightly relaxed condition (instead of atYEnd) to avoid toggling.
+                    const margin = 4;
+                    return (contentY >= (contentHeight - height - margin));
+                }
+                function __isAtBottom() {
+                    const margin = 2;
+                    return (contentY >= (contentHeight - height - margin));
+                }
+
+                function __scrollToBottomNow() {
+                    if (!stickToBottom) return;
+                    const snap = () => {
+                        if (root._destroying) return;
+                        if (!stickToBottom) return;
+                        __autoScrollingNow = true;
+                        contentY = __bottomContentY();
+                        __autoScrollingNow = false;
+                    };
+                    // Immediate + one more tick for late layout updates.
+                    snap();
+                    Qt.callLater(snap);
+                }
+
+                // Detect user scroll-away from bottom so we stop auto-pinning.
+                onContentYChanged: {
+                    if (messageListView.__autoScrollingNow) {
+                        messageListView.__lastContentY = messageListView.contentY;
+                        return;
+                    }
+
+                    const maxY = Math.max(0, messageListView.contentHeight - messageListView.height);
+                    const leavingBottomThreshold = 12;
+
+                    // If user scrolls up away from bottom, disable pinning.
+                    if (messageListView.contentY < (maxY - leavingBottomThreshold)) {
+                        messageListView.stickToBottom = false;
+                    }
+
+                    // If user returns to bottom, re-enable pinning.
+                    if (messageListView.__isAtBottom()) {
+                        messageListView.stickToBottom = true;
+                    }
+
+                    messageListView.__lastContentY = messageListView.contentY;
+                }
+
                 onContentHeightChanged: {
-                    if (atYEnd)
-                        Qt.callLater(positionViewAtEnd);
+                    // Only auto-scroll on growth (streaming append). Shrinks (collapse) shouldn't yank the view.
+                    const grew = messageListView.contentHeight > messageListView.__lastContentHeight + 0.5;
+                    messageListView.__lastContentHeight = messageListView.contentHeight;
+                    if (grew) __scrollToBottomNow();
                 }
                 onCountChanged: {
                     // Auto-scroll when new messages are added
-                    if (atYEnd)
-                        Qt.callLater(positionViewAtEnd);
+                    __scrollToBottomNow()
                 }
 
                 add: null // Prevent function calls from being janky
@@ -386,10 +734,9 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     required property var modelData
                     required property int index
                     messageIndex: index
-                    messageData: {
-                        Ai.messageByID[modelData];
-                    }
+                    messageData: Ai.messageByID[modelData] ?? null
                     messageInputField: root.inputField
+                    visible: messageData !== null
                 }
             }
 
@@ -475,7 +822,18 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
             Layout.fillWidth: true
             radius: Appearance.rounding.normal - root.padding
             color: Appearance.colors.colLayer2
-            implicitHeight: Math.max(inputFieldRowLayout.implicitHeight + inputFieldRowLayout.anchors.topMargin + commandButtonsRow.implicitHeight + commandButtonsRow.anchors.bottomMargin + spacing, 45) + (attachedFileIndicator.implicitHeight + spacing + attachedFileIndicator.anchors.topMargin)
+            implicitHeight: Math.max(
+                inputFieldRowLayout.implicitHeight
+                    + inputFieldRowLayout.anchors.topMargin
+                    + commandButtonsRow.implicitHeight
+                    + commandButtonsRow.anchors.bottomMargin
+                    + spacing,
+                45
+            ) + (
+                attachedFileIndicator.visible
+                    ? (attachedFileIndicator.implicitHeight + spacing + attachedFileIndicator.anchors.topMargin)
+                    : 0
+            )
             clip: true
 
             Behavior on implicitHeight {
@@ -645,10 +1003,16 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                                 messageInputField.insert(messageInputField.cursorPosition, "\n");
                                 event.accepted = true;
                             } else {
-                                // Accept text
-                                const inputText = messageInputField.text;
-                                messageInputField.clear();
-                                root.handleInput(inputText);
+                                // If the model is currently generating, don't send a new message.
+                                // Let Enter behave like newline so users can keep drafting.
+                                if (Ai.isGenerating) {
+                                    messageInputField.insert(messageInputField.cursorPosition, "\n");
+                                } else {
+                                    // Accept text
+                                    const inputText = messageInputField.text;
+                                    messageInputField.clear();
+                                    root.handleInput(inputText);
+                                }
                                 event.accepted = true;
                             }
                         } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
@@ -680,10 +1044,29 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                             if (Ai.pendingFilePath.length > 0) {
                                 Ai.attachFile("");
                                 event.accepted = true;
+                            } else if (Ai.isGenerating) {
+                                Ai.stopGenerating();
+                                event.accepted = true;
                             } else {
                                 event.accepted = false;
                             }
                         }
+                    }
+                }
+
+                // Always-visible (while generating) activity indicator at the tail of the input box.
+                BusyIndicator {
+                    id: generatingIndicator
+                    Layout.alignment: Qt.AlignTop
+                    Layout.rightMargin: 6
+                    implicitWidth: 18
+                    implicitHeight: 18
+                    running: Ai.isGenerating
+                    visible: opacity > 0
+                    opacity: Ai.isGenerating ? 1 : 0
+
+                    Behavior on opacity {
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
                     }
                 }
 
@@ -694,13 +1077,22 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     implicitWidth: 40
                     implicitHeight: 40
                     buttonRadius: Appearance.rounding.small
-                    enabled: messageInputField.text.length > 0
-                    toggled: enabled
+                    enabled: Ai.isGenerating || messageInputField.text.length > 0
+                    toggled: Ai.isGenerating ? true : enabled
+
+                    // Make the stop state visually distinct.
+                    colBackgroundToggled: Ai.isGenerating ? Appearance.colors.colErrorContainer : Appearance.colors.colPrimary
+                    colBackgroundToggledHover: Ai.isGenerating ? Appearance.colors.colErrorContainerHover : Appearance.colors.colPrimaryHover
+                    colRippleToggled: Ai.isGenerating ? Appearance.colors.colErrorContainerActive : Appearance.colors.colPrimaryActive
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: sendButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: {
+                            if (Ai.isGenerating) {
+                                Ai.stopGenerating();
+                                return;
+                            }
                             const inputText = messageInputField.text;
                             root.handleInput(inputText);
                             messageInputField.clear();
@@ -711,8 +1103,10 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         anchors.centerIn: parent
                         horizontalAlignment: Text.AlignHCenter
                         iconSize: 22
-                        color: sendButton.enabled ? Appearance.m3colors.m3onPrimary : Appearance.colors.colOnLayer2Disabled
-                        text: "arrow_upward"
+                        color: sendButton.enabled
+                            ? (Ai.isGenerating ? Appearance.colors.colOnErrorContainer : Appearance.m3colors.m3onPrimary)
+                            : Appearance.colors.colOnLayer2Disabled
+                        text: Ai.isGenerating ? "stop" : "arrow_upward"
                     }
                 }
             }
@@ -753,6 +1147,72 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     tooltipText: Translation.tr("Current tool: %1\nSet it with %2tool TOOL").arg(Ai.currentTool).arg(root.commandPrefix)
                 }
 
+                RippleButton {
+                    id: apiSettingsButton
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    buttonRadius: Appearance.rounding.small
+                    padding: 0
+                    colBackground: Appearance.colors.colLayer2
+                    colBackgroundHover: Appearance.colors.colLayer2Hover
+                    colRipple: Appearance.colors.colLayer2Active
+
+                    MouseArea {
+                        id: apiSettingsButtonMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.openApiSettings()
+                    }
+
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        iconSize: Appearance.font.pixelSize.normal
+                        color: Appearance.m3colors.m3onSurface
+                        text: "settings"
+                    }
+
+                    StyledToolTip {
+                        extraVisibleCondition: false
+                        alternativeVisibleCondition: apiSettingsButtonMouseArea.containsMouse
+                        text: Translation.tr("API settings (Base URL + API Key)")
+                    }
+                }
+
+                // Undo delete button
+                RippleButton {
+                    id: undoDeleteButton
+                    visible: Ai.canUndoDelete
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    buttonRadius: Appearance.rounding.small
+                    padding: 0
+                    colBackground: Appearance.colors.colLayer2
+                    colBackgroundHover: Appearance.colors.colLayer2Hover
+                    colRipple: Appearance.colors.colLayer2Active
+
+                    MouseArea {
+                        id: undoDeleteButtonMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Ai.undoLastDelete()
+                    }
+
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        iconSize: Appearance.font.pixelSize.normal
+                        color: Appearance.m3colors.m3onSurface
+                        text: "undo"
+                    }
+
+                    StyledToolTip {
+                        extraVisibleCondition: false
+                        alternativeVisibleCondition: undoDeleteButtonMouseArea.containsMouse
+                        text: Translation.tr("Undo delete (Ctrl+Z)")
+                    }
+                }
+
                 Item {
                     Layout.fillWidth: true
                 }
@@ -782,6 +1242,106 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // If keyring finishes loading while dialog is open, populate the draft (if still empty)
+    Connections {
+        target: KeyringStorage
+        function onLoadedChanged() {
+            if (root._destroying) return;
+            if (!root.showApiSettingsDialog) return;
+            if ((root.apiKeyDraft ?? "").length === 0) {
+                root.apiKeyDraft = Ai.openaiApiKey ?? "";
+            }
+        }
+    }
+
+    WindowDialog {
+        id: apiSettingsDialog
+        // Avoid complex parent binding; just use root. dialogOverlayParent causes teardown issues.
+        parent: root
+        anchors.fill: parent
+        z: 9999
+        show: root.showApiSettingsDialog
+        // Tune size: narrower (-15%) and a bit taller for comfortable spacing.
+        backgroundWidth: 442
+        backgroundHeight: 380
+        onDismiss: root.showApiSettingsDialog = false
+
+        WindowDialogTitle {
+            text: Translation.tr("API settings")
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            color: Appearance.m3colors.m3onSurfaceVariant
+            font.pixelSize: Appearance.font.pixelSize.small
+            text: Translation.tr("Configure an OpenAI-compatible provider. For DeepSeek use Base URL https://api.deepseek.com (no /v1).")
+        }
+
+        MaterialTextField {
+            id: apiBaseUrlField
+            Layout.fillWidth: true
+            placeholderText: Translation.tr("Base URL (e.g. https://api.deepseek.com)")
+            text: root.apiBaseUrlDraft
+            onTextChanged: root.apiBaseUrlDraft = text
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            MaterialTextField {
+                id: apiKeyField
+                Layout.fillWidth: true
+                placeholderText: Translation.tr("API key")
+                echoMode: root.apiKeyVisible ? TextInput.Normal : TextInput.Password
+                text: root.apiKeyDraft
+                onTextChanged: root.apiKeyDraft = text
+            }
+
+            DialogButton {
+                buttonText: root.apiKeyVisible ? Translation.tr("Hide") : Translation.tr("Show")
+                onClicked: root.apiKeyVisible = !root.apiKeyVisible
+            }
+        }
+
+        WindowDialogSeparator {}
+
+        WindowDialogButtonRow {
+            DialogButton {
+                buttonText: Translation.tr("Cancel")
+                onClicked: apiSettingsDialog.dismiss()
+            }
+
+            Item { Layout.fillWidth: true }
+
+            DialogButton {
+                buttonText: Translation.tr("Save")
+                onClicked: {
+                    Ai.setOpenAiBaseUrl(root.apiBaseUrlDraft, false);
+                    Ai.setOpenAiApiKey(root.apiKeyDraft, false);
+                    // Apply settings to local backend immediately.
+                    Ai.restartBackend();
+                    apiSettingsDialog.dismiss();
+                }
+            }
+        }
+    }
+
+    Loader {
+        parent: root.dialogOverlayParent ?? root
+        anchors.fill: parent
+        active: root.showRequestLog
+        visible: root.showRequestLog
+        z: 9999
+        sourceComponent: Component {
+            RequestLogDialog {
+                anchors.fill: parent
+                onClosed: root.showRequestLog = false
             }
         }
     }

@@ -9,6 +9,8 @@ import QtQuick.Controls
 ListView {
     id: root
     spacing: 5
+    // Whether to animate contentY changes (wheel/programmatic). Keep default true for existing UIs.
+    property bool animateScroll: true
     property real removeOvershoot: 20 // Account for gaps and bouncy animations
     property int dragIndex: -1
     property real dragDistance: 0
@@ -52,6 +54,7 @@ ListView {
     }
 
     Behavior on contentY {
+        enabled: root.animateScroll
         NumberAnimation {
             id: scrollAnim
             alwaysRunToEnd: true

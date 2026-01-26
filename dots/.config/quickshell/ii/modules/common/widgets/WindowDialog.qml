@@ -10,7 +10,9 @@ Rectangle {
 
     property bool show: false
     default property alias data: contentColumn.data
-    property real backgroundHeight: dialogBackground.implicitHeight
+    // Natural dialog height (content-driven). This must not depend on dialogBackground.implicitHeight,
+    // otherwise hiding (implicitHeight=0) would collapse the remembered height and break show animation.
+    property real backgroundHeight: contentColumn.implicitHeight + dialogBackground.radius * 2
     property real backgroundWidth: 350
     property real backgroundAnimationMovementDistance: 60
     
@@ -26,11 +28,18 @@ Rectangle {
     Behavior on color {
         animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
     }
-    visible: dialogBackground.implicitHeight > 0
+    // Keep visible while animating closed (implicitHeight > 0) to allow the closing animation to finish.
+    // But when initially created with show=false, implicitHeight should be 0 to avoid covering the UI.
+    visible: root.show || dialogBackground.implicitHeight > 0
 
     onShowChanged: {
         dialogBackgroundHeightAnimation.easing.bezierCurve = (show ? Appearance.animationCurves.emphasizedDecel : Appearance.animationCurves.emphasizedAccel)
         dialogBackground.implicitHeight = show ? backgroundHeight : 0
+    }
+
+    // If the content height changes while open, keep the dialog sized to it.
+    onBackgroundHeightChanged: {
+        if (root.show) dialogBackground.implicitHeight = backgroundHeight
     }
 
     radius: Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1
@@ -51,7 +60,8 @@ Rectangle {
         property real targetY: root.height / 2 - root.backgroundHeight / 2
         y: root.show ? targetY : (targetY - root.backgroundAnimationMovementDistance)
         implicitWidth: root.backgroundWidth
-        implicitHeight: contentColumn.implicitHeight + dialogBackground.radius * 2
+        // Drive the height by show/animation logic; do not bind to content height directly.
+        implicitHeight: 0
         Behavior on implicitHeight {
             NumberAnimation {
                 id: dialogBackgroundHeightAnimation
@@ -87,5 +97,10 @@ Rectangle {
             }
 
         }
+    }
+
+    Component.onCompleted: {
+        // Ensure we start hidden without covering the UI when show is initially false.
+        dialogBackground.implicitHeight = root.show ? root.backgroundHeight : 0;
     }
 }

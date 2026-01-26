@@ -18,7 +18,9 @@ ColumnLayout {
     property bool renderMarkdown: true
     property bool enableMouseSelection: false
     property var segmentContent: ({})
-    property var messageData: {}
+    // Must be a QObject (AiMessageData) or null. Using a plain JS object here can crash when
+    // used as Connections.target (expects QObject*).
+    property QtObject messageData: null
     property bool done: true
     property bool forceDisableChunkSplitting: false
 
@@ -116,8 +118,22 @@ ColumnLayout {
             // Split by either double newlines or single newlines in a list
             values: root.fadeChunkSplitting ? root.shownText.split(/\n\n(?= {0,2})|\n(?= {0,2}[-\*])/g).filter(line => line.trim() !== "") : [root.shownText]
             onValuesChanged: {
+                const done = root.messageData ? !!root.messageData.done : root.done;
+                const oldLen = textLinesRepeater.textLineOpacities.length;
                 while (textLinesRepeater.textLineOpacities.length < values.length) {
-                    textLinesRepeater.textLineOpacities.push(root.messageData.done ? 1 : 0);
+                    // New chunk: start hidden while streaming, then fade in.
+                    // When done, keep everything visible.
+                    textLinesRepeater.textLineOpacities.push(done ? 1 : 0);
+                }
+
+                // Trigger fade-in for newly created chunks.
+                if (root.fadeChunkSplitting && !done) {
+                    for (let i = oldLen; i < values.length; i++) {
+                        const idx = i;
+                        Qt.callLater(() => {
+                            textLinesRepeater.textLineOpacities[idx] = 1;
+                        });
+                    }
                 }
             }
         }
@@ -126,13 +142,29 @@ ColumnLayout {
             required property int index
             required property string modelData
 
+            // A subtle pulse for the last chunk while streaming.
+            // This makes incremental updates feel more like a fade instead of a hard jump.
+            property real revealOpacity: 1
+
+            Timer {
+                id: revealTimer
+                interval: 90
+                repeat: false
+                onTriggered: textArea.revealOpacity = 1
+            }
+
             // Fade in animation
             visible: opacity > 0
-            opacity: fadeChunkSplitting ? (textLinesRepeater.textLineOpacities[index] ?? (root.messageData.done ? 1 : 0)) : 1
+            opacity: {
+                if (!fadeChunkSplitting) return 1;
+                const done = root.messageData ? !!root.messageData.done : true;
+                const base = (textLinesRepeater.textLineOpacities[index] ?? (done ? 1 : 0));
+                return base * textArea.revealOpacity;
+            }
             Connections {
                 target: root.messageData
                 function onDoneChanged() {
-                    if (root.messageData.done) {
+                    if (root.messageData && root.messageData.done) {
                         textLinesRepeater.textLineOpacities[textArea.index] = 1
                     }
                 }
@@ -146,6 +178,10 @@ ColumnLayout {
                 }
             }
             Behavior on opacity {
+                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+            }
+
+            Behavior on revealOpacity {
                 animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
             }
 
@@ -164,8 +200,22 @@ ColumnLayout {
             text: modelData
 
             onTextChanged: {
-                if (!root.editing) return
-                segmentContent = text
+                if (root.editing) {
+                    segmentContent = text
+                    return;
+                }
+
+                if (!fadeChunkSplitting) return;
+                const done = root.messageData ? !!root.messageData.done : true;
+                if (done) return;
+
+                // Only pulse the last displayed chunk.
+                const lastIndex = (textLinesRepeater.model?.values?.length ?? 1) - 1;
+                if (textArea.index !== lastIndex) return;
+
+                // Pulse: quickly dip opacity then fade back in.
+                textArea.revealOpacity = 0.65;
+                revealTimer.restart();
             }
 
             onLinkActivated: (link) => {

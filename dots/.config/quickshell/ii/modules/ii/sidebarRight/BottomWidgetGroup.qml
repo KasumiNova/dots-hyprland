@@ -14,9 +14,9 @@ Rectangle {
     color: Appearance.colors.colLayer1
     clip: true
     implicitHeight: collapsed ? collapsedBottomWidgetGroupRow.implicitHeight : 350
-    property int selectedTab: Persistent.states.sidebar.bottomGroup.tab
+    property int selectedTab: Persistent.states.sidebar?.bottomGroup?.tab ?? 0
     property int previousIndex: -1
-    property bool collapsed: Persistent.states.sidebar.bottomGroup.collapsed
+    property bool collapsed: Persistent.states.sidebar?.bottomGroup?.collapsed ?? false
     property var tabs: [
         {
             "type": "calendar",
@@ -46,7 +46,29 @@ Rectangle {
         }
     }
 
+    function __ensureBottomGroupState() {
+        // states.json 可能被旧版本/手动编辑写成 null，reload 时会导致 TypeError。
+        if (Persistent.states.sidebar === null || Persistent.states.sidebar === undefined) {
+            Persistent.states.sidebar = {};
+        }
+        if (Persistent.states.sidebar.bottomGroup === null || Persistent.states.sidebar.bottomGroup === undefined) {
+            Persistent.states.sidebar.bottomGroup = { collapsed: false, tab: 0 };
+        }
+        if (Persistent.states.sidebar.bottomGroup.tab === null || Persistent.states.sidebar.bottomGroup.tab === undefined) {
+            Persistent.states.sidebar.bottomGroup.tab = 0;
+        }
+        if (Persistent.states.sidebar.bottomGroup.collapsed === null || Persistent.states.sidebar.bottomGroup.collapsed === undefined) {
+            Persistent.states.sidebar.bottomGroup.collapsed = false;
+        }
+    }
+
+    Component.onCompleted: {
+        __ensureBottomGroupState();
+        root.previousIndex = root.selectedTab;
+    }
+
     function setCollapsed(state) {
+        __ensureBottomGroupState();
         Persistent.states.sidebar.bottomGroup.collapsed = state;
         if (collapsed) {
             bottomWidgetGroupRow.opacity = 0;
@@ -165,6 +187,7 @@ Rectangle {
                         buttonText: modelData.name
                         buttonIcon: modelData.icon
                         onPressed: {
+                            root.__ensureBottomGroupState();
                             root.selectedTab = index;
                             Persistent.states.sidebar.bottomGroup.tab = index;
                         }
@@ -200,17 +223,19 @@ Rectangle {
                 anchors.bottomMargin: -anchors.topMargin
 
                 Component.onCompleted: {
-                    tabStack.source = root.tabs[root.selectedTab].widget;
+                    const idx = Math.max(0, Math.min(root.selectedTab, root.tabs.length - 1));
+                    tabStack.source = root.tabs[idx].widget;
                 }
 
                 Connections {
                     target: root
                     function onSelectedTabChanged() {
-                        if (root.currentTab > root.previousIndex)
+                        if (root.selectedTab > root.previousIndex)
                             tabSwitchBehavior.animation.down = true;
-                        else if (root.currentTab < root.previousIndex)
+                        else if (root.selectedTab < root.previousIndex)
                             tabSwitchBehavior.animation.down = false;
-                        tabStack.source = root.tabs[root.selectedTab].widget;
+                        const idx = Math.max(0, Math.min(root.selectedTab, root.tabs.length - 1));
+                        tabStack.source = root.tabs[idx].widget;
                     }
                 }
 

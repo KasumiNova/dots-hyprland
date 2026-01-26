@@ -4,14 +4,15 @@ import qs.modules.common.widgets
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
-import Qt.labs.synchronizer
+import QtQuick.Window
 
 Item {
     id: root
     required property var scopeRoot
     property int sidebarPadding: 10
     anchors.fill: parent
+    // Provided by `SidebarLeft.qml` on the content parent (sidebarLeftBackground)
+    readonly property real outputScale: (parent?.monitorScale ?? 1)
     property bool aiChatEnabled: Config.options.policies.ai !== 0
     property bool translatorEnabled: Config.options.sidebar.translator.enable
     property bool animeEnabled: Config.options.policies.weeb !== 0
@@ -70,47 +71,53 @@ Item {
             SwipeView { // Content pages
                 id: swipeView
                 anchors.fill: parent
+                // Add margins to keep content away from rounded corners
+                anchors.margins: Appearance.rounding.small / 2
                 spacing: 10
                 currentIndex: tabBar.currentIndex
 
                 clip: true
-                layer.enabled: true
-                layer.effect: OpacityMask {
-                    maskSource: Rectangle {
-                        width: swipeView.width
-                        height: swipeView.height
-                        radius: Appearance.rounding.small
+                // layer disabled to fix fractional scaling blur
+                layer.enabled: false
+
+                // Use Loader for better object lifecycle management.
+                // Static Loaders avoid the createObject() re-creation issue on every binding update.
+                Loader {
+                    active: root.aiChatEnabled
+                    visible: active
+                    sourceComponent: Component {
+                        AiChat {
+                            outputScale: root.outputScale
+                            dialogOverlayParent: root
+                        }
                     }
                 }
-
-                contentChildren: [
-                    ...(root.aiChatEnabled ? [aiChat.createObject()] : []),
-                    ...(root.translatorEnabled ? [translator.createObject()] : []),
-                    ...((root.tabButtonList.length === 0 || (!root.aiChatEnabled && !root.translatorEnabled && root.animeCloset)) ? [placeholder.createObject()] : []),
-                    ...(root.animeEnabled ? [anime.createObject()] : []),
-                ]
-            }
-        }
-
-        Component {
-            id: aiChat
-            AiChat {}
-        }
-        Component {
-            id: translator
-            Translator {}
-        }
-        Component {
-            id: anime
-            Anime {}
-        }
-        Component {
-            id: placeholder
-            Item {
-                StyledText {
-                    anchors.centerIn: parent
-                    text: root.animeCloset ? Translation.tr("Nothing") : Translation.tr("Enjoy your empty sidebar...")
-                    color: Appearance.colors.colSubtext
+                Loader {
+                    active: root.translatorEnabled
+                    visible: active
+                    sourceComponent: Component {
+                        Translator {}
+                    }
+                }
+                Loader {
+                    active: root.tabButtonList.length === 0 || (!root.aiChatEnabled && !root.translatorEnabled && root.animeCloset)
+                    visible: active
+                    sourceComponent: Component {
+                        Item {
+                            StyledText {
+                                anchors.centerIn: parent
+                                text: root.animeCloset ? Translation.tr("Nothing") : Translation.tr("Enjoy your empty sidebar...")
+                                color: Appearance.colors.colSubtext
+                            }
+                        }
+                    }
+                }
+                Loader {
+                    active: root.animeEnabled
+                    visible: active
+                    sourceComponent: Component {
+                        Anime {}
+                    }
                 }
             }
         }

@@ -11,9 +11,59 @@ Singleton {
     property string fileName: "states.json"
     property string filePath: `${root.fileDir}/${root.fileName}`
 
+    // Stability option: disable automatic file watching/reloading.
+    // We still load once on startup, and we still write on adapter updates.
+    // Reload should be triggered manually if needed.
+    property bool watchFiles: false
+
     property bool ready: false
     property string previousHyprlandInstanceSignature: ""
     property bool isNewHyprlandInstance: previousHyprlandInstanceSignature !== states.hyprlandInstanceSignature
+
+    function _repairStatesShape() {
+        // states.json 可能被旧版本/手工修改写出 null 或缺字段。
+        // JsonAdapter 对象字段被置空会导致下游 QML 绑定出现 TypeError。
+        try {
+            if (root.states.ai === null || root.states.ai === undefined) {
+                root.states.ai = {
+                    model: "gemini-2.5-flash",
+                    temperature: 0.5,
+                    openaiBaseUrl: "",
+                };
+            }
+            if (root.states.ai.openaiBaseUrl === null || root.states.ai.openaiBaseUrl === undefined) {
+                root.states.ai.openaiBaseUrl = "";
+            }
+            if (root.states.ai.temperature === null || root.states.ai.temperature === undefined) {
+                root.states.ai.temperature = 0.5;
+            }
+
+            if (root.states.sidebar === null || root.states.sidebar === undefined) {
+                root.states.sidebar = { bottomGroup: { collapsed: false, tab: 0 } };
+            }
+            if (root.states.sidebar.bottomGroup === null || root.states.sidebar.bottomGroup === undefined) {
+                root.states.sidebar.bottomGroup = { collapsed: false, tab: 0 };
+            }
+            if (root.states.sidebar.bottomGroup.collapsed === null || root.states.sidebar.bottomGroup.collapsed === undefined) {
+                root.states.sidebar.bottomGroup.collapsed = false;
+            }
+            if (root.states.sidebar.bottomGroup.tab === null || root.states.sidebar.bottomGroup.tab === undefined) {
+                root.states.sidebar.bottomGroup.tab = 0;
+            }
+
+            if (root.states.booru === null || root.states.booru === undefined) {
+                root.states.booru = { allowNsfw: false, provider: "yandere" };
+            }
+            if (root.states.booru.allowNsfw === null || root.states.booru.allowNsfw === undefined) {
+                root.states.booru.allowNsfw = false;
+            }
+            if (root.states.booru.provider === null || root.states.booru.provider === undefined) {
+                root.states.booru.provider = "yandere";
+            }
+        } catch (e) {
+            console.warn("[Persistent] Failed to repair states shape:", e);
+        }
+    }
 
     onReadyChanged: {
         root.previousHyprlandInstanceSignature = root.states.hyprlandInstanceSignature
@@ -42,10 +92,16 @@ Singleton {
         id: persistentStatesFileView
         path: root.filePath
 
-        watchChanges: true
-        onFileChanged: fileReloadTimer.restart()
+        watchChanges: root.watchFiles
+        onFileChanged: {
+            if (!root.watchFiles) return;
+            fileReloadTimer.restart();
+        }
         onAdapterUpdated: fileWriteTimer.restart()
-        onLoaded: root.ready = true
+        onLoaded: {
+            root._repairStatesShape();
+            root.ready = true;
+        }
         onLoadFailed: error => {
             console.log("Failed to load persistent states file:", error);
             if (error == FileViewError.FileNotFound) {
@@ -61,6 +117,8 @@ Singleton {
             property JsonObject ai: JsonObject {
                 property string model: "gemini-2.5-flash"
                 property real temperature: 0.5
+                    // OpenAI-compatible base URL (e.g. https://api.deepseek.com). Not sensitive.
+                    property string openaiBaseUrl: ""
             }
 
             property JsonObject cheatsheet: JsonObject {

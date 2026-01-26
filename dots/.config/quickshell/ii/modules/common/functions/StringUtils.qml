@@ -46,14 +46,17 @@ Singleton {
     }
 
     /**
-     * Splits markdown blocks into three different types: text, think, and code.
+     * Splits markdown blocks into different types: text, think, code, and tool.
+     * Multiple consecutive think blocks are merged into one.
+     * Tool placeholders (<!-- tool:id -->) are extracted as separate blocks.
      * @param { string } markdown
-     * @returns {Array<{type: "text" | "think" | "code", content: string, lang?: string, completed?: boolean}>}
+     * @returns {Array<{type: "text" | "think" | "code" | "tool", content: string, lang?: string, completed?: boolean, toolId?: string}>}
      */
     function splitMarkdownBlocks(markdown) {
-        const regex = /```(\w+)?\n([\s\S]*?)```|<think>([\s\S]*?)<\/think>/g;
+        // Match code blocks, think blocks, and tool placeholders
+        const regex = /```(\w+)?\n([\s\S]*?)```|<think>([\s\S]*?)<\/think>|<!--\s*tool:(\S+)\s*-->/g;
         /**
-         * @type {{type: "text" | "think" | "code"; content: string; lang: string | undefined; completed: boolean | undefined}[]}
+         * @type {{type: "text" | "think" | "code" | "tool"; content: string; lang: string | undefined; completed: boolean | undefined; toolId: string | undefined}[]}
          */
         let result = [];
         let lastIndex = 0;
@@ -79,12 +82,26 @@ Singleton {
                 }
             } else if (match[0].startsWith('<think>')) {
                 if (match[3] && match[3].trim()) {
-                    result.push({
-                        type: "think",
-                        content: match[3],
-                        completed: true
-                    });
+                    // Merge with previous think block if it exists
+                    const lastBlock = result.length > 0 ? result[result.length - 1] : null;
+                    if (lastBlock && lastBlock.type === "think") {
+                        lastBlock.content += "\n\n" + match[3];
+                        // Keep completed = true since this block is complete
+                    } else {
+                        result.push({
+                            type: "think",
+                            content: match[3],
+                            completed: true
+                        });
+                    }
                 }
+            } else if (match[0].startsWith('<!--') && match[4]) {
+                // Tool placeholder
+                result.push({
+                    type: "tool",
+                    content: "",
+                    toolId: match[4]
+                });
             }
             lastIndex = regex.lastIndex;
         }
@@ -104,11 +121,18 @@ Singleton {
                 }
                 const thinkContent = text.slice(thinkStart + 7);
                 if (thinkContent.trim()) {
-                    result.push({
-                        type: "think",
-                        content: thinkContent,
-                        completed: false
-                    });
+                    // Merge with previous think block if it exists
+                    const lastBlock = result.length > 0 ? result[result.length - 1] : null;
+                    if (lastBlock && lastBlock.type === "think") {
+                        lastBlock.content += "\n\n" + thinkContent;
+                        lastBlock.completed = false; // Now it's unclosed
+                    } else {
+                        result.push({
+                            type: "think",
+                            content: thinkContent,
+                            completed: false
+                        });
+                    }
                 }
             } else if (codeStart !== -1) {
                 const beforeCode = text.slice(0, codeStart);

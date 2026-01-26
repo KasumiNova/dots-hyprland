@@ -22,6 +22,8 @@ QtObject {
     property string homepage
     property string endpoint
     property string model
+    // Max context window size (tokens). Optional; used only for UI.
+    property int context_length: 0
     property bool requires_key: true
     property string key_id
     property string key_get_link

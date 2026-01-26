@@ -60,11 +60,7 @@ Singleton {
 	FileView { 
         id: themeFileView
         path: Qt.resolvedUrl(root.filePath)
-        watchChanges: true
-        onFileChanged: {
-            this.reload()
-            delayedFileRead.start()
-        }
+        watchChanges: false
         onLoadedChanged: {
             const fileContent = themeFileView.text()
             root.applyColors(fileContent)

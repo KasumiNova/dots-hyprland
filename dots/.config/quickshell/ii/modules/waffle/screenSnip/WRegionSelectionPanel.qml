@@ -36,9 +36,11 @@ PanelWindow {
         Window
     }
 
-    signal closed
+    // NOTE: `PanelWindow`/QtQuick 内部可能已经存在 `closed` 相关信号/属性变更信号。
+    // 自定义 `signal closed` 会触发 "Duplicate signal name" 并导致组件加载失败。
+    signal dismissed
     function close() {
-        root.closed();
+        root.dismissed();
     }
 
     property var mediaType: WRegionSelectionPanel.MediaType.Image
@@ -340,7 +342,7 @@ PanelWindow {
             icon.name: "eyedropper"
             onClicked: {
                 Quickshell.execDetached(["bash", "-c", "sleep 0.2; hyprpicker -a"]);
-                root.closed();
+                root.dismissed();
             }
             WToolTip {
                 text: Translation.tr("Color picker")

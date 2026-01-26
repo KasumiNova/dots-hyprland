@@ -13,7 +13,9 @@ Rectangle {
     id: root
 
     property var screen: root.QsWindow.window?.screen
-    property var brightnessMonitor: Brightness.getMonitorForScreen(screen)
+    property var brightnessMonitor: screen ? Brightness.getMonitorForScreen(screen) : null
+    readonly property var sinkAudio: Audio.sink ? Audio.sink.audio : null
+    readonly property var sourceAudio: Audio.source ? Audio.source.audio : null
 
     implicitWidth: contentItem.implicitWidth + root.horizontalPadding * 2
     implicitHeight: contentItem.implicitHeight + root.verticalPadding * 2
@@ -41,9 +43,10 @@ Rectangle {
             active: Config.options.sidebar.quickSliders.showBrightness
             sourceComponent: QuickSlider {
                 materialSymbol: "brightness_6"
-                value: root.brightnessMonitor.brightness
+                value: root.brightnessMonitor ? root.brightnessMonitor.brightness : 0
                 onMoved: {
-                    root.brightnessMonitor.setBrightness(value)
+                    if (root.brightnessMonitor)
+                        root.brightnessMonitor.setBrightness(value)
                 }
             }
         }
@@ -57,9 +60,10 @@ Rectangle {
             active: Config.options.sidebar.quickSliders.showVolume
             sourceComponent: QuickSlider {
                 materialSymbol: "volume_up"
-                value: Audio.sink.audio.volume
+                value: root.sinkAudio ? root.sinkAudio.volume : 0
                 onMoved: {
-                    Audio.sink.audio.volume = value
+                    if (root.sinkAudio)
+                        root.sinkAudio.volume = value
                 }
             }
         }
@@ -73,9 +77,10 @@ Rectangle {
             active: Config.options.sidebar.quickSliders.showMic
             sourceComponent: QuickSlider {
                 materialSymbol: "mic"
-                value: Audio.source.audio.volume
+                value: root.sourceAudio ? root.sourceAudio.volume : 0
                 onMoved: {
-                    Audio.source.audio.volume = value
+                    if (root.sourceAudio)
+                        root.sourceAudio.volume = value
                 }
             }
         }

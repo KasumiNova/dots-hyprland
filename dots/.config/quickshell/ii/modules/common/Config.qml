@@ -13,6 +13,15 @@ Singleton {
     property int readWriteDelay: 50 // milliseconds
     property bool blockWrites: false
 
+    // Stability option: disable automatic file watching/reloading.
+    // We still load once on startup, and we still write on adapter updates.
+    // Reload should be triggered manually if needed.
+    property bool watchFiles: false
+
+    function reloadFromDisk() {
+        configFileView.reload();
+    }
+
     function setNestedValue(nestedKey, value) {
         let keys = nestedKey.split(".");
         let obj = root.options;
@@ -64,9 +73,12 @@ Singleton {
     FileView {
         id: configFileView
         path: root.filePath
-        watchChanges: true
+        watchChanges: root.watchFiles
         blockWrites: root.blockWrites
-        onFileChanged: fileReloadTimer.restart()
+        onFileChanged: {
+            if (!root.watchFiles) return;
+            fileReloadTimer.restart();
+        }
         onAdapterUpdated: fileWriteTimer.restart()
         onLoaded: root.ready = true
         onLoadFailed: error => {
