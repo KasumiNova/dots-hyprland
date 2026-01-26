@@ -34,6 +34,9 @@ Item {
     property string apiKeyDraft: ""
     property bool apiKeyVisible: false
 
+    // When a modal overlay is open, never steal focus back to the chat input.
+    readonly property bool modalOpen: root.showApiSettingsDialog || root.showRequestLog
+
     function openApiSettings() {
         // Best-effort: preload keyring so the dialog can show existing values.
         if (!KeyringStorage.loaded) KeyringStorage.fetchKeyringData();
@@ -41,6 +44,19 @@ Item {
         root.apiKeyDraft = Ai.openaiApiKey ?? "";
         root.apiKeyVisible = false;
         root.showApiSettingsDialog = true;
+
+        // Ensure focus moves into the dialog, otherwise Ctrl+V and other key events
+        // can bubble up and get intercepted by the chat input.
+        Qt.callLater(() => {
+            if (root._destroying) return;
+            if (!root.showApiSettingsDialog) return;
+            try {
+                apiBaseUrlField.forceActiveFocus();
+            } catch (e) {
+                // Fallback: focus API key field if Base URL field is not available.
+                try { apiKeyField.forceActiveFocus(); } catch (e2) {}
+            }
+        });
     }
 
     Component.onDestruction: {
@@ -64,27 +80,36 @@ Item {
 
     onFocusChanged: focus => {
         if (focus) {
-            root.inputField.forceActiveFocus();
+            if (!root.modalOpen) root.inputField.forceActiveFocus();
         }
     }
 
     Keys.onPressed: event => {
-        messageInputField.forceActiveFocus();
+        // If a modal dialog is open, do not redirect key events to the chat input.
+        // This fixes paste/typing being stolen by the background input field.
+        if (root.modalOpen) {
+            event.accepted = false;
+            return;
+        }
         if (event.modifiers === Qt.NoModifier) {
             if (event.key === Qt.Key_PageUp) {
+                messageInputField.forceActiveFocus();
                 messageListView.contentY = Math.max(0, messageListView.contentY - messageListView.height / 2);
                 event.accepted = true;
             } else if (event.key === Qt.Key_PageDown) {
+                messageInputField.forceActiveFocus();
                 messageListView.contentY = Math.min(messageListView.contentHeight - messageListView.height / 2, messageListView.contentY + messageListView.height / 2);
                 event.accepted = true;
             }
         }
         if ((event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier) && event.key === Qt.Key_O) {
+            messageInputField.forceActiveFocus();
             Ai.clearMessages();
         }
         // Ctrl+Z to undo delete (only when input field is empty to not interfere with text editing)
         if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Z && messageInputField.text.length === 0) {
             if (Ai.canUndoDelete) {
+                messageInputField.forceActiveFocus();
                 Ai.undoLastDelete();
                 event.accepted = true;
             }
@@ -1269,6 +1294,15 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         backgroundWidth: 442
         backgroundHeight: 380
         onDismiss: root.showApiSettingsDialog = false
+
+        onShowChanged: {
+            if (!show) return;
+            Qt.callLater(() => {
+                if (root._destroying) return;
+                if (!root.showApiSettingsDialog) return;
+                try { apiBaseUrlField.forceActiveFocus(); } catch (e) {}
+            });
+        }
 
         WindowDialogTitle {
             text: Translation.tr("API settings")

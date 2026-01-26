@@ -15,8 +15,14 @@ Rectangle {
     property real backgroundHeight: contentColumn.implicitHeight + dialogBackground.radius * 2
     property real backgroundWidth: 350
     property real backgroundAnimationMovementDistance: 60
+
+    // When shown, the dialog should be able to take focus so key events (e.g. Esc)
+    // won't unexpectedly bubble into the background UI.
+    focus: root.show
+    activeFocusOnTab: root.show
     
     signal dismiss()
+    Keys.priority: Keys.BeforeItem
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Escape) {
             root.dismiss();
