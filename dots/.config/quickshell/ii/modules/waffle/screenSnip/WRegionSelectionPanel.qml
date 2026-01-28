@@ -36,8 +36,8 @@ PanelWindow {
         Window
     }
 
-    // NOTE: `PanelWindow`/QtQuick 内部可能已经存在 `closed` 相关信号/属性变更信号。
-    // 自定义 `signal closed` 会触发 "Duplicate signal name" 并导致组件加载失败。
+    // NOTE: PanelWindow/QtQuick may already have a 'closed' signal/property internally.
+    // Defining a custom 'signal closed' would trigger "Duplicate signal name" and cause component load failure.
     signal dismissed
     function close() {
         root.dismissed();

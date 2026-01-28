@@ -16,7 +16,10 @@ Item {
     property bool focusingThisMonitor: HyprlandData.activeWorkspace?.monitor == monitor?.name
     property var biggestWindow: HyprlandData.biggestWindowForWorkspace(HyprlandData.monitors[root.monitor?.id]?.activeWorkspace.id)
 
-    implicitWidth: colLayout.implicitWidth
+    // Prevent long titles from bleeding into neighboring bar sections.
+    clip: true
+    // Avoid a huge implicitWidth based on title length influencing parent layout sizing.
+    implicitWidth: 0
 
     ColumnLayout {
         id: colLayout
@@ -28,8 +31,10 @@ Item {
 
         StyledText {
             Layout.fillWidth: true
+            Layout.maximumWidth: colLayout.width
             font.pixelSize: Appearance.font.pixelSize.smaller
             color: Appearance.colors.colSubtext
+            wrapMode: Text.NoWrap
             elide: Text.ElideRight
             text: root.focusingThisMonitor && root.activeWindow?.activated && root.biggestWindow ? 
                 root.activeWindow?.appId :
@@ -39,8 +44,10 @@ Item {
 
         StyledText {
             Layout.fillWidth: true
+            Layout.maximumWidth: colLayout.width
             font.pixelSize: Appearance.font.pixelSize.small
             color: Appearance.colors.colOnLayer0
+            wrapMode: Text.NoWrap
             elide: Text.ElideRight
             text: root.focusingThisMonitor && root.activeWindow?.activated && root.biggestWindow ? 
                 root.activeWindow?.title :

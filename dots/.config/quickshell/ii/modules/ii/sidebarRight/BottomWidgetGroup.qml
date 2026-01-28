@@ -47,7 +47,7 @@ Rectangle {
     }
 
     function __ensureBottomGroupState() {
-        // states.json 可能被旧版本/手动编辑写成 null，reload 时会导致 TypeError。
+        // states.json may have null values due to older versions or manual edits, causing TypeError on reload.
         if (Persistent.states.sidebar === null || Persistent.states.sidebar === undefined) {
             Persistent.states.sidebar = {};
         }

@@ -50,6 +50,8 @@ Item { // Bar content region
     FocusedScrollMouseArea { // Left side | scroll to change brightness
         id: barLeftSideMouseArea
 
+        clip: true
+
         anchors {
             top: parent.top
             bottom: parent.bottom
@@ -99,37 +101,79 @@ Item { // Bar content region
         }
     }
 
-    Row { // Middle section
+    Item { // Middle section (keep workspaces centered)
         id: middleSection
         anchors {
             top: parent.top
             bottom: parent.bottom
             horizontalCenter: parent.horizontalCenter
         }
-        spacing: 4
 
-        BarGroup {
-            id: leftCenterGroup
-            anchors.verticalCenter: parent.verticalCenter
-            implicitWidth: root.centerSideModuleWidth
+        // IMPORTANT: anchors.horizontalCenter does not set width.
+        // Without an explicit width, middleSection would be 0px wide and the
+        // left/right side mouse areas would overlap it (causing text bleed and
+        // "stranded" widgets).
+        width: implicitWidth
+        height: implicitHeight
 
-            Resources {
-                alwaysShowAllResources: root.useShortenedForm === 2
-                Layout.fillWidth: root.useShortenedForm === 2
+        property real spacing: 4
+        implicitHeight: Appearance.sizes.baseBarHeight
+        implicitWidth: leftCluster.implicitWidth + middleCenterGroup.implicitWidth + rightCluster.implicitWidth + middleSection.spacing * 2
+
+        Row { // Left cluster (left of workspaces)
+            id: leftCluster
+            anchors.right: middleCenterGroup.left
+            anchors.rightMargin: middleSection.spacing
+            anchors.verticalCenter: middleCenterGroup.verticalCenter
+            spacing: middleSection.spacing
+
+            BarGroup {
+                id: leftCenterGroup
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: root.centerSideModuleWidth
+
+                Resources {
+                    alwaysShowAllResources: root.useShortenedForm === 2
+                    Layout.fillWidth: root.useShortenedForm === 2
+                }
+
+                Media {
+                    visible: root.useShortenedForm < 2
+                    Layout.fillWidth: true
+                }
             }
 
-            Media {
-                visible: root.useShortenedForm < 2
-                Layout.fillWidth: true
+            // Lyrics (left of workspaces)
+            Item {
+                visible: lyricsLeftLoader.active
+                implicitWidth: lyricsLeftLoader.item?.implicitWidth ?? 0
+                implicitHeight: lyricsLeftLoader.item?.implicitHeight ?? 0
+
+                Loader {
+                    id: lyricsLeftLoader
+                    anchors.fill: parent
+                    active: (Config.options?.bar?.lyrics?.enable ?? false)
+                        && (Config.options.bar.lyrics.position === "left")
+                        && (root.useShortenedForm < 2)
+
+                    sourceComponent: BarGroup {
+                        anchors.verticalCenter: parent.verticalCenter
+                        Lyrics {
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+
+            // Separator between (left/lyrics) and workspaces (borderless style)
+            VerticalBarSeparator {
+                visible: Config.options?.bar.borderless
             }
         }
 
-        VerticalBarSeparator {
-            visible: Config.options?.bar.borderless
-        }
-
-        BarGroup {
+        BarGroup { // Workspaces: always centered
             id: middleCenterGroup
+            anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             padding: workspacesWidget.widgetPadding
 
@@ -150,38 +194,87 @@ Item { // Bar content region
             }
         }
 
-        VerticalBarSeparator {
-            visible: Config.options?.bar.borderless
-        }
+        Row { // Right cluster (right of workspaces)
+            id: rightCluster
+            anchors.left: middleCenterGroup.right
+            anchors.leftMargin: middleSection.spacing
+            anchors.verticalCenter: middleCenterGroup.verticalCenter
+            spacing: middleSection.spacing
 
-        MouseArea {
-            id: rightCenterGroup
-            anchors.verticalCenter: parent.verticalCenter
-            implicitWidth: root.centerSideModuleWidth
-            implicitHeight: rightCenterGroupContent.implicitHeight
+            // Lyrics (right of workspaces)
+            Item {
+                visible: lyricsRightLoader.active
+                implicitWidth: lyricsRightLoader.item?.implicitWidth ?? 0
+                implicitHeight: lyricsRightLoader.item?.implicitHeight ?? 0
 
-            onPressed: {
-                GlobalStates.sidebarRightOpen = !GlobalStates.sidebarRightOpen;
+                Loader {
+                    id: lyricsRightLoader
+                    anchors.fill: parent
+                    active: (Config.options?.bar?.lyrics?.enable ?? false)
+                        && (Config.options.bar.lyrics.position === "right")
+                        && (root.useShortenedForm < 2)
+
+                    sourceComponent: BarGroup {
+                        anchors.verticalCenter: parent.verticalCenter
+                        Lyrics {
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
             }
 
-            BarGroup {
-                id: rightCenterGroupContent
-                anchors.fill: parent
+            // Separator between (lyrics) and right group (borderless style)
+            VerticalBarSeparator {
+                visible: Config.options?.bar.borderless
+            }
 
-                ClockWidget {
-                    showDate: (Config.options.bar.verbose && root.useShortenedForm < 2)
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.fillWidth: true
+            MouseArea {
+                id: rightCenterGroup
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: root.centerSideModuleWidth
+                implicitHeight: rightCenterGroupContent.implicitHeight
+
+                onPressed: {
+                    GlobalStates.sidebarRightOpen = !GlobalStates.sidebarRightOpen;
                 }
 
-                UtilButtons {
-                    visible: (Config.options.bar.verbose && root.useShortenedForm === 0)
-                    Layout.alignment: Qt.AlignVCenter
-                }
+                BarGroup {
+                    id: rightCenterGroupContent
+                    anchors.fill: parent
 
-                BatteryIndicator {
-                    visible: (root.useShortenedForm < 2 && Battery.available)
-                    Layout.alignment: Qt.AlignVCenter
+                    ClockWidget {
+                        showDate: (Config.options.bar.verbose && root.useShortenedForm < 2)
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.fillWidth: true
+                    }
+
+                    UtilButtons {
+                        visible: (Config.options.bar.verbose && root.useShortenedForm === 0)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    BatteryIndicator {
+                        visible: (root.useShortenedForm < 2 && Battery.available)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // Weather: keep it close to the "function buttons" group (clock/util/battery)
+            Item {
+                visible: weatherNearButtons.active
+                implicitWidth: weatherNearButtons.item?.implicitWidth ?? 0
+                implicitHeight: weatherNearButtons.item?.implicitHeight ?? 0
+
+                Loader {
+                    id: weatherNearButtons
+                    anchors.fill: parent
+                    active: Config.options.bar.weather.enable && (root.useShortenedForm < 2)
+
+                    sourceComponent: BarGroup {
+                        anchors.verticalCenter: parent.verticalCenter
+                        WeatherBar {}
+                    }
                 }
             }
         }
@@ -189,6 +282,8 @@ Item { // Bar content region
 
     FocusedScrollMouseArea { // Right side | scroll to change volume
         id: barRightSideMouseArea
+
+        clip: true
 
         anchors {
             top: parent.top
@@ -222,7 +317,21 @@ Item { // Bar content region
             id: rightSectionRowLayout
             anchors.fill: parent
             spacing: 5
-            layoutDirection: Qt.RightToLeft
+            // Keep a stable visual cluster on the right:
+            // [spacer ...] [SysTray] [Right sidebar button]
+            layoutDirection: Qt.LeftToRight
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+            }
+
+            SysTray {
+                visible: root.useShortenedForm === 0
+                Layout.fillWidth: false
+                Layout.fillHeight: true
+                invertSide: Config?.options.bar.bottom
+            }
 
             RippleButton { // Right sidebar button
                 id: rightSidebarButton
@@ -314,28 +423,6 @@ Item { // Bar content region
                         iconSize: Appearance.font.pixelSize.larger
                         color: rightSidebarButton.colText
                     }
-                }
-            }
-
-            SysTray {
-                visible: root.useShortenedForm === 0
-                Layout.fillWidth: false
-                Layout.fillHeight: true
-                invertSide: Config?.options.bar.bottom
-            }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-            }
-
-            // Weather
-            Loader {
-                Layout.leftMargin: 4
-                active: Config.options.bar.weather.enable
-
-                sourceComponent: BarGroup {
-                    WeatherBar {}
                 }
             }
         }

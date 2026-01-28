@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Compatibility launcher.
+# The AI backend now lives under Quickshell config and is managed by Quickshell.
+# This script is kept for manual debugging.
+
+PORT="${1:-}"
+if [[ "$PORT" == "--port" ]]; then
+  PORT="${2:-}"
+fi
+PORT="${PORT:-32123}"
+
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+VENV_PATH="${ILLOGICAL_IMPULSE_VIRTUAL_ENV:-$XDG_STATE_HOME/quickshell/.venv}"
+PY="$VENV_PATH/bin/python"
+
+SERVER="$HOME/.config/quickshell/ii/ai/server.py"
+
+if [[ ! -x "$PY" ]]; then
+  echo "[ii-ai-backend] Python venv not found: $PY" >&2
+  echo "Run dots-hyprland installer first (./setup install) to create the venv." >&2
+  exit 1
+fi
+
+if [[ ! -f "$SERVER" ]]; then
+  echo "[ii-ai-backend] server.py not found: $SERVER" >&2
+  exit 1
+fi
+
+exec "$PY" "$SERVER" --port "$PORT"

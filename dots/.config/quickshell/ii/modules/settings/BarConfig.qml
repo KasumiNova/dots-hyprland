@@ -347,4 +347,149 @@ ContentPage {
             }
         }
     }
+
+    ContentSection {
+        icon: "lyrics"
+        title: Translation.tr("Lyrics")
+
+        ConfigSwitch {
+            buttonIcon: "music_note"
+            text: Translation.tr("Enable (SPlayer)")
+            checked: (Config.options?.bar?.lyrics?.enable ?? false)
+            onCheckedChanged: {
+                Config.options.bar.lyrics.enable = checked;
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("SPlayer WebSocket URL")
+            tooltip: Translation.tr("Example: ws://localhost:25885")
+
+            MaterialTextField {
+                id: splayerWsUrlField
+                Layout.fillWidth: true
+                placeholderText: "ws://localhost:25885"
+                onTextChanged: wsUrlDebounce.restart()
+
+                Timer {
+                    id: wsUrlDebounce
+                    interval: 300
+                    repeat: false
+                    onTriggered: {
+                        Config.options.bar.lyrics.wsUrl = splayerWsUrlField.text.trim();
+                    }
+                }
+
+                Binding {
+                    target: splayerWsUrlField
+                    property: "text"
+                    value: (Config.options?.bar?.lyrics?.wsUrl ?? "ws://localhost:25885")
+                    when: !splayerWsUrlField.activeFocus
+                }
+            }
+        }
+
+        ConfigRow {
+            ContentSubsection {
+                title: Translation.tr("Position")
+                Layout.fillWidth: true
+
+                ConfigSelectionArray {
+                    currentValue: (Config.options?.bar?.lyrics?.position ?? "right")
+                    onSelected: newValue => {
+                        Config.options.bar.lyrics.position = newValue;
+                    }
+                    options: [
+                        {
+                            displayName: Translation.tr("Left"),
+                            icon: "arrow_back",
+                            value: "left"
+                        },
+                        {
+                            displayName: Translation.tr("Right"),
+                            icon: "arrow_forward",
+                            value: "right"
+                        }
+                    ]
+                }
+            }
+
+            ContentSubsection {
+                title: Translation.tr("Animation")
+                Layout.fillWidth: false
+
+                ConfigSelectionArray {
+                    currentValue: (Config.options?.bar?.lyrics?.animate ?? true)
+                    onSelected: newValue => {
+                        Config.options.bar.lyrics.animate = newValue;
+                    }
+                    options: [
+                        {
+                            displayName: Translation.tr("Off"),
+                            icon: "pause",
+                            value: false
+                        },
+                        {
+                            displayName: Translation.tr("On"),
+                            icon: "play_arrow",
+                            value: true
+                        }
+                    ]
+                }
+            }
+        }
+
+        ConfigRow {
+            uniform: true
+
+            ConfigSpinBox {
+                icon: "format_size"
+                text: Translation.tr("Max characters")
+                value: (Config.options?.bar?.lyrics?.maxChars ?? 40)
+                from: 5
+                to: 200
+                stepSize: 1
+                onValueChanged: {
+                    Config.options.bar.lyrics.maxChars = value;
+                }
+            }
+
+            ConfigSpinBox {
+                icon: "width"
+                text: Translation.tr("Widget width (px)")
+                value: (Config.options?.bar?.lyrics?.width ?? 260)
+                from: 120
+                to: 800
+                stepSize: 10
+                onValueChanged: {
+                    Config.options.bar.lyrics.width = value;
+                }
+            }
+        }
+
+        ConfigRow {
+            uniform: true
+
+            ConfigSpinBox {
+                icon: "schedule"
+                text: Translation.tr("Sync offset (ms) (+ earlier)")
+                value: (Config.options?.bar?.lyrics?.offsetMs ?? 0)
+                from: -3000
+                to: 3000
+                stepSize: 50
+                onValueChanged: {
+                    Config.options.bar.lyrics.offsetMs = value;
+                }
+            }
+        }
+
+        ConfigSwitch {
+            buttonIcon: "translate"
+            text: Translation.tr("Show translation")
+            checked: (Config.options?.bar?.lyrics?.showTranslation ?? true)
+            onCheckedChanged: {
+                Config.options.bar.lyrics.showTranslation = checked;
+            }
+        }
+    }
 }

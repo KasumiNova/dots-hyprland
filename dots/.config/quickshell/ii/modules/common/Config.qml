@@ -13,10 +13,10 @@ Singleton {
     property int readWriteDelay: 50 // milliseconds
     property bool blockWrites: false
 
-    // Stability option: disable automatic file watching/reloading.
-    // We still load once on startup, and we still write on adapter updates.
-    // Reload should be triggered manually if needed.
-    property bool watchFiles: false
+    // Watch the config file for changes so external writers (e.g. the Settings app)
+    // apply to the running shell in real time.
+    // If you ever need extra stability, you can still toggle this back to false.
+    property bool watchFiles: true
 
     function reloadFromDisk() {
         configFileView.reload();
@@ -293,6 +293,19 @@ Singleton {
                 }
                 property JsonObject tooltips: JsonObject {
                     property bool clickToShow: false
+                }
+
+                // Lyrics widget (SPlayer WS bridge)
+                property JsonObject lyrics: JsonObject {
+                    property bool enable: false
+                    property string wsUrl: "ws://localhost:25885"
+                    property string position: "right" // "left" | "right"
+                    // Positive values shift lyrics earlier (less lag); negative shifts later.
+                    property int offsetMs: 0
+                    property int maxChars: 40
+                    property int width: 260 // px, approximate target width of the widget
+                    property bool animate: true
+                    property bool showTranslation: true
                 }
             }
 

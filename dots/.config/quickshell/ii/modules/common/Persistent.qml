@@ -21,8 +21,8 @@ Singleton {
     property bool isNewHyprlandInstance: previousHyprlandInstanceSignature !== states.hyprlandInstanceSignature
 
     function _repairStatesShape() {
-        // states.json 可能被旧版本/手工修改写出 null 或缺字段。
-        // JsonAdapter 对象字段被置空会导致下游 QML 绑定出现 TypeError。
+        // states.json may have null or missing fields due to older versions or manual edits.
+        // JsonAdapter object fields that are null/undefined would cause TypeError in downstream QML bindings.
         try {
             if (root.states.ai === null || root.states.ai === undefined) {
                 root.states.ai = {

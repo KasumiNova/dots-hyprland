@@ -21,6 +21,10 @@ Scope {
     readonly property real osdWidth: Appearance.sizes.osdWidth
     readonly property real widgetWidth: Appearance.sizes.mediaControlsWidth
     readonly property real widgetHeight: Appearance.sizes.mediaControlsHeight
+
+    // Offset for lyrics widget when it's on the left side of the bar
+    readonly property bool lyricsOnLeft: (Config.options?.bar?.lyrics?.enable ?? false) && (Config.options?.bar?.lyrics?.position === "left")
+    readonly property real lyricsWidthOffset: lyricsOnLeft ? ((Config.options?.bar?.lyrics?.width ?? 200) + 8) : 0  // 8 = spacing
     property real popupRounding: Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1
     property list<real> visualizerPoints: []
 
@@ -132,7 +136,7 @@ Scope {
             margins {
                 top: Config.options.bar.vertical ? ((panelWindow.screen.height / 2) - widgetHeight * 1.5) : Appearance.sizes.barHeight
                 bottom: Appearance.sizes.barHeight
-                left: Config.options.bar.vertical ? Appearance.sizes.barHeight : ((panelWindow.screen.width / 2) - (osdWidth / 2) - widgetWidth)
+                left: Config.options.bar.vertical ? Appearance.sizes.barHeight : ((panelWindow.screen.width / 2) - (osdWidth / 2) - widgetWidth - root.lyricsWidthOffset)
                 right: Appearance.sizes.barHeight
             }
 
