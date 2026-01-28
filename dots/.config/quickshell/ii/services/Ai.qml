@@ -131,6 +131,8 @@ Singleton {
     property int currentChatId: -1
     property string currentChatName: ""
     property var chatList: []
+    // If chat list refresh is requested while apiProc is busy, queue it.
+    property bool _chatListRefreshQueued: false
     // Stop / Abort
     property bool _stopRequested: false
     property string _stopReason: ""
@@ -271,7 +273,79 @@ Singleton {
             apiProc._buffer = "";
             apiProc.callback = null;
             apiProc.operation = "";
+
+            // Run a queued chat list refresh after any API call completes.
+            if (root._chatListRefreshQueued) {
+                root._chatListRefreshQueued = false;
+                Qt.callLater(() => {
+                    if (root._destroying) return;
+                    root.refreshChatList();
+                });
+            }
         }
+    }
+
+    // Dedicated API process for chat/session switching.
+    // The main apiProc is often busy (saving messages, refreshing lists), and _apiGet() will skip
+    // requests when busy. Chat switching must remain responsive, so we isolate it.
+    Process {
+        id: chatApiProc
+        property var callback: null
+        property string _buffer: ""
+        // Single-slot queue for GET requests triggered while this proc is still "running".
+        // This commonly happens when chaining a second GET from inside onExited callbacks.
+        property string _queuedUrl: ""
+        property var _queuedCallback: null
+
+        stdout: SplitParser {
+            onRead: data => {
+                if (root._destroying) return;
+                chatApiProc._buffer += data;
+            }
+        }
+
+        onExited: (exitCode, exitStatus) => {
+            if (root._destroying) return;
+            try {
+                if (exitCode === 0 && chatApiProc._buffer.length > 0) {
+                    const result = JSON.parse(chatApiProc._buffer);
+                    if (chatApiProc.callback) chatApiProc.callback(result, null);
+                } else {
+                    if (chatApiProc.callback) chatApiProc.callback(null, `Exit code: ${exitCode}`);
+                }
+            } catch (e) {
+                console.log("[Ai] Chat API parse error:", e, chatApiProc._buffer);
+                if (chatApiProc.callback) chatApiProc.callback(null, e.toString());
+            }
+            chatApiProc._buffer = "";
+            chatApiProc.callback = null;
+
+            // Drain queued request (if any). Only one slot is kept; latest wins.
+            const queuedUrl = chatApiProc._queuedUrl;
+            const queuedCb = chatApiProc._queuedCallback;
+            chatApiProc._queuedUrl = "";
+            chatApiProc._queuedCallback = null;
+            if (queuedUrl && queuedUrl.length > 0 && queuedCb) {
+                chatApiProc._buffer = "";
+                chatApiProc.callback = queuedCb;
+                chatApiProc.command = ["curl", "-s", "--max-time", "8", queuedUrl];
+                chatApiProc.running = true;
+            }
+        }
+    }
+
+    function _chatApiGet(url, callback) {
+        if (chatApiProc.running) {
+            // Do not drop chat/session switching requests; keep the latest queued.
+            chatApiProc._queuedUrl = url;
+            chatApiProc._queuedCallback = callback;
+            console.log("[Ai] Chat API busy, queued GET:", url);
+            return;
+        }
+        chatApiProc._buffer = "";
+        chatApiProc.callback = callback;
+        chatApiProc.command = ["curl", "-s", "--max-time", "8", url];
+        chatApiProc.running = true;
     }
 
     function _apiGet(url, callback) {
@@ -339,12 +413,17 @@ Singleton {
             root.currentChatId = result.id;
             root.currentChatName = result.name || "";
             root._loadMessagesFromBackend(result.messages || []);
+
+            // Keep chat list in sync so UI can render immediately.
+            root.refreshChatList();
         });
     }
 
     // Load messages from a backend response array
     function _loadMessagesFromBackend(messages) {
         root.clearMessages(false); // Don't clear backend when loading from it
+
+        const ctxLimit = (root.models?.[root.currentModelId]?.context_length ?? 0);
 
         // Recompute committed session totals from persisted per-message usage.
         let sumI = 0;
@@ -418,10 +497,26 @@ Singleton {
         }
 
         if (lastUsage) {
-            root.requestTokenCount.input = lastUsage.usagePromptTokens;
-            root.requestTokenCount.output = lastUsage.usageCompletionTokens;
-            root.requestTokenCount.total = lastUsage.usageTotalTokens;
-            root.requestTokenCount.estimated = !!lastUsage.usageEstimated;
+            // On cold start, persisted usage fields can be misleading (e.g. cumulative totals).
+            // Treat values that exceed the model context window as invalid for the "context window" UI.
+            const p = lastUsage.usagePromptTokens;
+            const c = lastUsage.usageCompletionTokens;
+            const t = lastUsage.usageTotalTokens;
+            const promptValid = (typeof p === "number") && p >= 0 && (ctxLimit <= 0 || p <= ctxLimit);
+            const completionValid = (typeof c === "number") && c >= 0;
+            const totalValid = (typeof t === "number") && t >= 0;
+
+            if (promptValid) {
+                root.requestTokenCount.input = p;
+                root.requestTokenCount.output = completionValid ? c : -1;
+                root.requestTokenCount.total = totalValid ? t : -1;
+                root.requestTokenCount.estimated = !!lastUsage.usageEstimated;
+            } else {
+                root.requestTokenCount.input = -1;
+                root.requestTokenCount.output = -1;
+                root.requestTokenCount.total = -1;
+                root.requestTokenCount.estimated = false;
+            }
         } else {
             root.requestTokenCount.input = -1;
             root.requestTokenCount.output = -1;
@@ -461,86 +556,138 @@ Singleton {
     }
 
     // Create a new chat
-    function createNewChat(name = "") {
+    function createNewChat(name = "", quiet = false) {
         _apiPost(root.backendChatsUrl, { name: name || "" }, (result, err) => {
             if (root._destroying) return;
             if (err) {
-                root.addMessage(Translation.tr("Failed to create chat: %1").arg(err), root.interfaceRole);
+                if (!quiet) root.addMessage(Translation.tr("Failed to create chat: %1").arg(err), root.interfaceRole);
                 return;
             }
             root.currentChatId = result.id;
             root.currentChatName = result.name || "";
             root.clearMessages(false); // New chat is already empty
-            root.addMessage(Translation.tr("Created new chat: %1").arg(result.name || `#${result.id}`), root.interfaceRole);
+            if (!quiet) root.addMessage(Translation.tr("Created new chat: %1").arg(result.name || `#${result.id}`), root.interfaceRole);
             refreshChatList();
         });
     }
 
     // Rename current chat
-    function renameCurrentChat(newName) {
+    function renameCurrentChat(newName, quiet = false) {
         if (root.currentChatId < 0) {
-            root.addMessage(Translation.tr("No active chat to rename"), root.interfaceRole);
+            if (!quiet) root.addMessage(Translation.tr("No active chat to rename"), root.interfaceRole);
             return;
         }
-        const url = `${root.backendChatsUrl}/${root.currentChatId}`;
+        renameChatById(root.currentChatId, newName, quiet);
+    }
+
+    // Rename a chat by id.
+    function renameChatById(chatId, newName, quiet = false) {
+        const cid = Number(chatId);
+        if (!isFinite(cid) || cid < 0) {
+            if (!quiet) root.addMessage(Translation.tr("Invalid chat id"), root.interfaceRole);
+            return;
+        }
+        const url = `${root.backendChatsUrl}/${cid}`;
         _apiPut(url, { name: newName }, (result, err) => {
             if (root._destroying) return;
             if (err) {
-                root.addMessage(Translation.tr("Failed to rename chat: %1").arg(err), root.interfaceRole);
+                if (!quiet) root.addMessage(Translation.tr("Failed to rename chat: %1").arg(err), root.interfaceRole);
                 return;
             }
-            root.currentChatName = newName;
-            root.addMessage(Translation.tr("Chat renamed to: %1").arg(newName), root.interfaceRole);
+            if (cid === root.currentChatId) root.currentChatName = newName;
+            if (!quiet) root.addMessage(Translation.tr("Chat renamed to: %1").arg(newName), root.interfaceRole);
             refreshChatList();
         });
     }
 
     // Load a specific chat by ID
-    function loadChatById(chatId) {
-        const url = `${root.backendMessagesUrl}/${chatId}`;
-        _apiGet(url, (messages, err) => {
+    function loadChatById(chatId, quiet = false) {
+        const cid = Number(chatId);
+        if (!isFinite(cid) || cid < 0) {
+            if (!quiet) root.addMessage(Translation.tr("Invalid chat id"), root.interfaceRole);
+            return;
+        }
+
+        // Optimistically update current chat selection immediately.
+        root.currentChatId = cid;
+        const known = (root.chatList || []).find(c => Number(c?.id) === cid);
+        root.currentChatName = known?.name || "";
+
+        const url = `${root.backendMessagesUrl}/${cid}`;
+        _chatApiGet(url, (messages, err) => {
             if (root._destroying) return;
             if (err) {
-                root.addMessage(Translation.tr("Failed to load chat: %1").arg(err), root.interfaceRole);
+                if (!quiet) root.addMessage(Translation.tr("Failed to load chat: %1").arg(err), root.interfaceRole);
                 return;
             }
-            // Also get chat info
-            _apiGet(`${root.backendChatsUrl}/${chatId}`, (chatInfo, err2) => {
+
+            root._loadMessagesFromBackend(messages || []);
+
+            // Do not inject UI status messages into persisted chats unless explicitly requested.
+            if (!quiet) root.addMessage(Translation.tr("Loaded chat: %1").arg(root.currentChatName || `#${cid}`), root.interfaceRole);
+
+            root.refreshChatList();
+
+            // Fetch authoritative chat name/info *after* this request fully unwinds.
+            Qt.callLater(() => {
                 if (root._destroying) return;
-                root.currentChatId = chatId;
-                root.currentChatName = chatInfo?.name || "";
-                root._loadMessagesFromBackend(messages || []);
-                root.addMessage(Translation.tr("Loaded chat: %1").arg(root.currentChatName || `#${chatId}`), root.interfaceRole);
+                _chatApiGet(`${root.backendChatsUrl}/${cid}`, (chatInfo, err2) => {
+                    if (root._destroying) return;
+                    if (err2) return;
+                    root.currentChatName = chatInfo?.name || "";
+                    root.refreshChatList();
+                });
             });
         });
     }
 
-    // Delete current chat
-    function deleteCurrentChat() {
-        if (root.currentChatId < 0) {
-            root.addMessage(Translation.tr("No active chat to delete"), root.interfaceRole);
+    // Delete a chat by id.
+    // If the deleted chat is the current one, we will load the most recent chat afterward.
+    function deleteChatById(chatId, quiet = false) {
+        const cid = Number(chatId);
+        if (!isFinite(cid) || cid < 0) {
+            if (!quiet) root.addMessage(Translation.tr("Invalid chat id"), root.interfaceRole);
             return;
         }
-        const url = `${root.backendChatsUrl}/${root.currentChatId}`;
-        const oldName = root.currentChatName || `#${root.currentChatId}`;
+        const url = `${root.backendChatsUrl}/${cid}`;
+        const wasCurrent = (cid === root.currentChatId);
+        const oldName = wasCurrent ? (root.currentChatName || `#${cid}`) : `#${cid}`;
         _apiDelete(url, (result, err) => {
             if (root._destroying) return;
             if (err) {
-                root.addMessage(Translation.tr("Failed to delete chat: %1").arg(err), root.interfaceRole);
+                if (!quiet) root.addMessage(Translation.tr("Failed to delete chat: %1").arg(err), root.interfaceRole);
                 return;
             }
-            root.addMessage(Translation.tr("Deleted chat: %1").arg(oldName), root.interfaceRole);
-            root.currentChatId = -1;
-            root.currentChatName = "";
-            root.clearMessages(false); // Chat was deleted, no need to clear backend
+
+            if (!quiet) root.addMessage(Translation.tr("Deleted chat: %1").arg(oldName), root.interfaceRole);
+
+            if (wasCurrent) {
+                root.currentChatId = -1;
+                root.currentChatName = "";
+                root.clearMessages(false);
+            }
+
             refreshChatList();
-            // Load most recent chat or create one
-            loadCurrentChat();
+            if (wasCurrent) loadCurrentChat();
         });
+    }
+
+    // Delete current chat
+    function deleteCurrentChat(quiet = false) {
+        if (root.currentChatId < 0) {
+            if (!quiet) root.addMessage(Translation.tr("No active chat to delete"), root.interfaceRole);
+            return;
+        }
+        deleteChatById(root.currentChatId, quiet);
     }
 
     // Refresh chat list
     function refreshChatList() {
+        if (apiProc.running) {
+            // Avoid spamming; just ensure one refresh happens after current op.
+            root._chatListRefreshQueued = true;
+            return;
+        }
         _apiGet(root.backendChatsUrl, (result, err) => {
             if (root._destroying) return;
             if (err) {
@@ -1056,6 +1203,13 @@ Singleton {
 
         function markDone() {
             if (root._destroying) return;
+            // Record wall-clock duration for UI summaries.
+            if ((requester.message?.startedAtMs ?? -1) < 0) {
+                requester.message.startedAtMs = Date.now();
+            }
+            if ((requester.message?.finishedAtMs ?? -1) < 0) {
+                requester.message.finishedAtMs = Date.now();
+            }
             requester.message.done = true;
             if (root.postResponseHook) {
                 root.postResponseHook();
@@ -1184,6 +1338,8 @@ Singleton {
                 "rawContent": "",
                 "thinking": true,
                 "done": false,
+                "startedAtMs": Date.now(),
+                "finishedAtMs": -1,
             });
             const id = idForMessage(requester.message);
             root.messageIDs = [...root.messageIDs, id];

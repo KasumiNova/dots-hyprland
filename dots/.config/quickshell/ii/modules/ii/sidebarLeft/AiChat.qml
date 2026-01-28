@@ -25,6 +25,65 @@ Item {
 
     property bool showRequestLog: false
 
+    function fmtTokensCompact(n) {
+        const v = Number(n);
+        if (!isFinite(v) || v < 0) return "-";
+
+        function fmtScaled(x, unit) {
+            if (x < 10) return `${x.toFixed(1)}${unit}`;
+            return `${Math.round(x)}${unit}`;
+        }
+
+        if (v >= 1000000) return fmtScaled(v / 1000000, "M");
+        if (v >= 1000) return fmtScaled(v / 1000, "k");
+        return `${Math.round(v)}`;
+    }
+
+    component TokenRing: Item {
+        id: ring
+        property real progress: 0
+        property color colBg: Appearance.colors.colOutlineVariant
+        property color colFg: Appearance.colors.colPrimary
+        implicitWidth: 22
+        implicitHeight: 22
+
+        Canvas {
+            id: canvas
+            anchors.fill: parent
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                const w = width;
+                const h = height;
+                const cx = w/2;
+                const cy = h/2;
+                const r = Math.min(w, h)/2 - 2;
+                const start = -Math.PI/2;
+                const p = Math.max(0, Math.min(1, ring.progress || 0));
+
+                ctx.lineWidth = 2;
+                ctx.lineCap = "round";
+
+                // bg circle
+                ctx.strokeStyle = ring.colBg;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI*2);
+                ctx.stroke();
+
+                // fg arc
+                if (p > 0) {
+                    ctx.strokeStyle = ring.colFg;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, start, start + Math.PI*2*p);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        onProgressChanged: canvas.requestPaint()
+        Component.onCompleted: canvas.requestPaint()
+    }
+
     // Prevent input/suggestions from visually overflowing the page bounds.
     clip: true
 
@@ -35,7 +94,27 @@ Item {
     property bool apiKeyVisible: false
 
     // When a modal overlay is open, never steal focus back to the chat input.
-    readonly property bool modalOpen: root.showApiSettingsDialog || root.showRequestLog
+    // Chat/session manager is also a modal.
+    property bool showChatManagerDialog: false
+    property string newChatNameDraft: ""
+    property int __pendingDeleteChatId: -1
+    property int __editingChatId: -1
+    property string __editingChatNameDraft: ""
+    readonly property bool modalOpen: root.showApiSettingsDialog || root.showRequestLog || root.showChatManagerDialog
+
+    function openChatManager() {
+        // Always refresh list when opening.
+        Ai.refreshChatList();
+        root.__pendingDeleteChatId = -1;
+        root.newChatNameDraft = "";
+        root.showChatManagerDialog = true;
+
+        Qt.callLater(() => {
+            if (root._destroying) return;
+            if (!root.showChatManagerDialog) return;
+            try { newChatNameField.forceActiveFocus(); } catch (e) {}
+        });
+    }
 
     function openApiSettings() {
         // Best-effort: preload keyring so the dialog can show existing values.
@@ -182,44 +261,6 @@ Item {
             }
         },
         {
-            name: "load",
-            description: Translation.tr("Load a chat by ID"),
-            execute: args => {
-                if (args.length === 0) {
-                    // List available chats
-                    Ai.refreshChatList();
-                    let msg = Translation.tr("Available chats:\n");
-                    for (const chat of Ai.chatList) {
-                        msg += `- **${chat.name || "Unnamed"}** (ID: ${chat.id})\n`;
-                    }
-                    msg += Translation.tr("\nUsage: %1load CHAT_ID").arg(root.commandPrefix);
-                    Ai.addMessage(msg, Ai.interfaceRole);
-                    return;
-                }
-                const chatId = parseInt(args[0]);
-                if (isNaN(chatId)) {
-                    Ai.addMessage(Translation.tr("Invalid chat ID. Usage: %1load CHAT_ID").arg(root.commandPrefix), Ai.interfaceRole);
-                    return;
-                }
-                Ai.loadChatById(chatId);
-            }
-        },
-        {
-            name: "new",
-            description: Translation.tr("Create a new chat"),
-            execute: args => {
-                const name = args.join(" ").trim();
-                Ai.createNewChat(name);
-            }
-        },
-        {
-            name: "delete",
-            description: Translation.tr("Delete current chat"),
-            execute: () => {
-                Ai.deleteCurrentChat();
-            }
-        },
-        {
             name: "chats",
             description: Translation.tr("List all chats"),
             execute: () => {
@@ -328,12 +369,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         } else {
             Ai.sendUserMessage(inputText);
         }
-
-        // Always scroll to bottom when user sends a message
-        messageListView.stickToBottom = true;
-        messageListView.__autoScrollingNow = true;
-        messageListView.positionViewAtEnd();
-        messageListView.__autoScrollingNow = false;
     }
 
     Process {
@@ -387,24 +422,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         }
     }
 
-    function _scrollToBottomImmediate() {
-        if (!messageListView) return;
-        messageListView.stickToBottom = true;
-        messageListView.__autoScrollingNow = true;
-        // Prefer contentY to avoid ListView's positionViewAtEnd timing issues on initial layout.
-        messageListView.contentY = messageListView.__bottomContentY();
-        messageListView.__autoScrollingNow = false;
-    }
 
-    Connections {
-        target: Ai
-        function onMessagesLoaded() {
-            if (root._destroying) return;
-            // Run twice: first after model swap, second after delegates/layout finalize.
-            Qt.callLater(root._scrollToBottomImmediate);
-            Qt.callLater(root._scrollToBottomImmediate);
-        }
-    }
 
     component StatusSeparator: Rectangle {
         implicitWidth: 4
@@ -497,143 +515,77 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         }
                     }
 
-                    function __fmtTokensCompact(n) {
-                        const v = Number(n);
-                        if (!isFinite(v) || v < 0) return "-";
+                    // (ctx window indicator moved to bottom input bar)
 
-                        function fmtScaled(x, unit) {
-                            // Keep 1 decimal for small k-range to show e.g. 9.1k, 8.4k.
-                            // For larger numbers (>= 10k), avoid decimals: 128k, 42k.
-                            if (x < 10) return `${x.toFixed(1)}${unit}`;
-                            return `${Math.round(x)}${unit}`;
-                        }
+                    // Chat/session switcher
+                    MouseArea {
+                        id: chatSwitcher
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !Ai.isGenerating
+                        implicitHeight: Math.max(22, chatRow.implicitHeight)
+                        implicitWidth: chatRow.implicitWidth
 
-                        if (v >= 1000000) return fmtScaled(v / 1000000, "M");
-                        if (v >= 1000) return fmtScaled(v / 1000, "k");
-                        return `${Math.round(v)}`;
-                    }
+                        onClicked: root.openChatManager()
 
-                    component TokenRing: Item {
-                        id: ring
-                        property real progress: 0
-                        property color colBg: Appearance.colors.colOutlineVariant
-                        property color colFg: Appearance.colors.colPrimary
-                        implicitWidth: 22
-                        implicitHeight: 22
+                        RowLayout {
+                            id: chatRow
+                            spacing: 6
+                            Layout.alignment: Qt.AlignVCenter
 
-                        Canvas {
-                            id: canvas
-                            anchors.fill: parent
-                            onPaint: {
-                                const ctx = getContext("2d");
-                                ctx.reset();
-                                const w = width;
-                                const h = height;
-                                const cx = w/2;
-                                const cy = h/2;
-                                const r = Math.min(w, h)/2 - 2;
-                                const start = -Math.PI/2;
-                                const p = Math.max(0, Math.min(1, ring.progress || 0));
+                            MaterialSymbol {
+                                Layout.alignment: Qt.AlignVCenter
+                                text: "forum"
+                                iconSize: Appearance.font.pixelSize.huge
+                                color: Appearance.colors.colSubtext
+                            }
 
-                                ctx.lineWidth = 2;
-                                ctx.lineCap = "round";
-
-                                // bg circle
-                                ctx.strokeStyle = ring.colBg;
-                                ctx.beginPath();
-                                ctx.arc(cx, cy, r, 0, Math.PI*2);
-                                ctx.stroke();
-
-                                // fg arc
-                                if (p > 0) {
-                                    ctx.strokeStyle = ring.colFg;
-                                    ctx.beginPath();
-                                    ctx.arc(cx, cy, r, start, start + Math.PI*2*p);
-                                    ctx.stroke();
+                            StyledText {
+                                Layout.alignment: Qt.AlignVCenter
+                                font.pixelSize: Appearance.font.pixelSize.small
+                                color: Appearance.colors.colSubtext
+                                elide: Text.ElideRight
+                                // Keep it compact; full name in tooltip.
+                                text: {
+                                    const cid = Ai.currentChatId;
+                                    const name = (Ai.currentChatName ?? "").trim();
+                                    if (cid < 0) return Translation.tr("No chat");
+                                    if (name.length > 0) return name;
+                                    return `#${cid}`;
                                 }
+                                maximumLineCount: 1
+                                width: Math.min(180, implicitWidth)
                             }
                         }
 
-                        onProgressChanged: canvas.requestPaint()
-                        Component.onCompleted: canvas.requestPaint()
+                        StyledToolTip {
+                            text: {
+                                if (Ai.isGenerating) return Translation.tr("Can't switch chats while generating");
+                                const cid = Ai.currentChatId;
+                                const name = (Ai.currentChatName ?? "").trim();
+                                if (cid < 0) return Translation.tr("Chat sessions");
+                                return Translation.tr("Chat sessions\nCurrent: %1 (%2)")
+                                    .arg(name.length > 0 ? name : Translation.tr("Unnamed"))
+                                    .arg(`#${cid}`);
+                            }
+                            extraVisibleCondition: false
+                            alternativeVisibleCondition: chatSwitcher.containsMouse
+                        }
                     }
 
-                    StatusItem {
-                        icon: Ai.currentModelHasApiKey ? "key" : "key_off"
-                        statusText: ""
-                        description: Ai.currentModelHasApiKey ? Translation.tr("API key is set\nChange with /key YOUR_API_KEY") : Translation.tr("No API key\nSet it with /key YOUR_API_KEY")
-                    }
                     StatusSeparator {}
                     StatusItem {
                         icon: "device_thermostat"
                         statusText: Ai.temperature.toFixed(1)
                         description: Translation.tr("Temperature\nChange with /temp VALUE")
                     }
-
-                    StatusSeparator {}
-                    MouseArea {
-                        id: ctxWindowItem
-                        hoverEnabled: true
-                        // Don't reference ids inside other components (StatusItem internals).
-                        // Use our own contents to size and align.
-                        implicitHeight: Math.max(22, ctxRow.implicitHeight)
-                        implicitWidth: ctxRow.implicitWidth
-                        Layout.alignment: Qt.AlignVCenter
-
-                        property int used: Math.round(requestAnim.total)
-                        property int limit: (Ai.models?.[Ai.currentModelId]?.context_length ?? 0)
-                        property real progressTarget: (limit > 0 && used >= 0) ? Math.min(1, used / limit) : 0
-                        property real progress: progressTarget
-
-                        Behavior on progress {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-
-                        RowLayout {
-                            id: ctxRow
-                            spacing: 6
-                            Layout.alignment: Qt.AlignVCenter
-                            TokenRing {
-                                id: canvas
-                                progress: ctxWindowItem.progress
-                            }
-                            StyledText {
-                                font.pixelSize: Appearance.font.pixelSize.small
-                                color: Appearance.colors.colSubtext
-                                Layout.alignment: Qt.AlignVCenter
-                                text: {
-                                    if (ctxWindowItem.limit <= 0) return "-";
-                                    if (ctxWindowItem.used < 0) return `? / ${statusRowLayout.__fmtTokensCompact(ctxWindowItem.limit)}`;
-                                    return `${statusRowLayout.__fmtTokensCompact(ctxWindowItem.used)} / ${statusRowLayout.__fmtTokensCompact(ctxWindowItem.limit)}`;
-                                }
-                            }
-                        }
-
-                        StyledToolTip {
-                            text: {
-                                const used = ctxWindowItem.used;
-                                const limit = ctxWindowItem.limit;
-                                if (limit <= 0) return Translation.tr("Context window: unknown");
-                                if (used < 0) return Translation.tr("Context window\n? / %1 tokens").arg(limit);
-                                return Translation.tr("Context window\n%1 / %2 tokens (%3%)")
-                                    .arg(used)
-                                    .arg(limit)
-                                    .arg(Math.round(ctxWindowItem.progress * 100));
-                            }
-                            extraVisibleCondition: false
-                            alternativeVisibleCondition: ctxWindowItem.containsMouse
-                        }
-                    }
-                    StatusSeparator {
-                        visible: true
-                    }
                     StatusItem {
                         visible: true
                         icon: "token"
                         statusText: {
                             if (sessionAnim.total < 0) return "I: - / O: -";
-                            const i = statusRowLayout.__fmtTokensCompact(sessionAnim.input);
-                            const o = statusRowLayout.__fmtTokensCompact(sessionAnim.output);
+                            const i = root.fmtTokensCompact(sessionAnim.input);
+                            const o = root.fmtTokensCompact(sessionAnim.output);
                             return `I: ${i} / O: ${o}`;
                         }
                         description: {
@@ -667,7 +619,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                 anchors.fill: parent
                 spacing: 10
                 popin: false
-                // Disable smooth scrolling animation here; auto-scroll should not visibly slide.
+                // Disable smooth scrolling animation to keep scroll feel snappy.
                 animateScroll: false
                 topMargin: statusBg.implicitHeight + statusBg.anchors.topMargin * 2
 
@@ -675,77 +627,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                 mouseScrollFactor: Config.options.interactions.scrolling.mouseScrollFactor * 1.4
 
                 property int lastResponseLength: 0
-
-                // When true, keep the view pinned to bottom as new content streams in.
-                // Once the user scrolls up, disable pinning until they return to bottom.
-                property bool stickToBottom: true
-                property bool __autoScrollingNow: false
-                property real __lastContentY: 0
-
-                // Debounced auto-scroll: streaming updates can change contentHeight many times per second.
-                // Using Qt.callLater repeatedly can queue up many scroll calls and cause visible flicker.
-                property real __lastContentHeight: 0
-
-                function __bottomContentY() {
-                    return Math.max(0, contentHeight - height);
-                }
-                function __isNearBottom() {
-                    // A slightly relaxed condition (instead of atYEnd) to avoid toggling.
-                    const margin = 4;
-                    return (contentY >= (contentHeight - height - margin));
-                }
-                function __isAtBottom() {
-                    const margin = 2;
-                    return (contentY >= (contentHeight - height - margin));
-                }
-
-                function __scrollToBottomNow() {
-                    if (!stickToBottom) return;
-                    const snap = () => {
-                        if (root._destroying) return;
-                        if (!stickToBottom) return;
-                        __autoScrollingNow = true;
-                        contentY = __bottomContentY();
-                        __autoScrollingNow = false;
-                    };
-                    // Immediate + one more tick for late layout updates.
-                    snap();
-                    Qt.callLater(snap);
-                }
-
-                // Detect user scroll-away from bottom so we stop auto-pinning.
-                onContentYChanged: {
-                    if (messageListView.__autoScrollingNow) {
-                        messageListView.__lastContentY = messageListView.contentY;
-                        return;
-                    }
-
-                    const maxY = Math.max(0, messageListView.contentHeight - messageListView.height);
-                    const leavingBottomThreshold = 12;
-
-                    // If user scrolls up away from bottom, disable pinning.
-                    if (messageListView.contentY < (maxY - leavingBottomThreshold)) {
-                        messageListView.stickToBottom = false;
-                    }
-
-                    // If user returns to bottom, re-enable pinning.
-                    if (messageListView.__isAtBottom()) {
-                        messageListView.stickToBottom = true;
-                    }
-
-                    messageListView.__lastContentY = messageListView.contentY;
-                }
-
-                onContentHeightChanged: {
-                    // Only auto-scroll on growth (streaming append). Shrinks (collapse) shouldn't yank the view.
-                    const grew = messageListView.contentHeight > messageListView.__lastContentHeight + 0.5;
-                    messageListView.__lastContentHeight = messageListView.contentHeight;
-                    if (grew) __scrollToBottomNow();
-                }
-                onCountChanged: {
-                    // Auto-scroll when new messages are added
-                    __scrollToBottomNow()
-                }
 
                 add: null // Prevent function calls from being janky
 
@@ -1191,7 +1072,9 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     }
 
                     contentItem: MaterialSymbol {
-                        anchors.centerIn: parent
+                        anchors.fill: parent
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
                         iconSize: Appearance.font.pixelSize.normal
                         color: Appearance.m3colors.m3onSurface
                         text: "settings"
@@ -1240,6 +1123,61 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
 
                 Item {
                     Layout.fillWidth: true
+                }
+
+                // Context window indicator (moved from top status bar)
+                MouseArea {
+                    id: ctxWindowItem
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: true
+                    implicitHeight: Math.max(22, ctxRow.implicitHeight)
+                    implicitWidth: ctxRow.implicitWidth
+                    Layout.alignment: Qt.AlignVCenter
+
+                    // Prefer prompt tokens (input) as a context-window proxy.
+                    property int used: Math.round(requestAnim.input)
+                    property int limit: (Ai.models?.[Ai.currentModelId]?.context_length ?? 0)
+                    property real progressTarget: (limit > 0 && used >= 0) ? Math.min(1, used / limit) : 0
+                    property real progress: progressTarget
+
+                    Behavior on progress {
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                    }
+
+                    RowLayout {
+                        id: ctxRow
+                        spacing: 6
+                        Layout.alignment: Qt.AlignVCenter
+                        TokenRing {
+                            progress: ctxWindowItem.progress
+                        }
+                        StyledText {
+                            font.pixelSize: Appearance.font.pixelSize.small
+                            color: Appearance.colors.colSubtext
+                            Layout.alignment: Qt.AlignVCenter
+                            text: {
+                                if (ctxWindowItem.limit <= 0) return "-";
+                                if (ctxWindowItem.used < 0) return `? / ${root.fmtTokensCompact(ctxWindowItem.limit)}`;
+                                return `${root.fmtTokensCompact(ctxWindowItem.used)} / ${root.fmtTokensCompact(ctxWindowItem.limit)}`;
+                            }
+                        }
+                    }
+
+                    StyledToolTip {
+                        text: {
+                            const used = ctxWindowItem.used;
+                            const limit = ctxWindowItem.limit;
+                            if (limit <= 0) return Translation.tr("Context window: unknown");
+                            if (used < 0) return Translation.tr("Context window\n? / %1 tokens").arg(limit);
+                            return Translation.tr("Context window (prompt tokens)\n%1 / %2 tokens (%3%)")
+                                .arg(used)
+                                .arg(limit)
+                                .arg(Math.round(ctxWindowItem.progress * 100));
+                        }
+                        extraVisibleCondition: false
+                        alternativeVisibleCondition: ctxWindowItem.containsMouse
+                    }
                 }
 
                 ButtonGroup {
@@ -1362,6 +1300,357 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     Ai.restartBackend();
                     apiSettingsDialog.dismiss();
                 }
+            }
+        }
+    }
+
+    // Chat/session manager
+    WindowDialog {
+        id: chatManagerDialog
+        parent: root
+        anchors.fill: parent
+        z: 9999
+        show: root.showChatManagerDialog
+        // Responsive sizing: fit within available page area.
+        backgroundWidth: Math.max(300, Math.min(520, (root.width || 0) - 24))
+        backgroundHeight: Math.max(380, Math.min(560, (root.height || 0) - 24))
+        onDismiss: root.showChatManagerDialog = false
+
+        onShowChanged: {
+            if (!show) return;
+            // Keep list fresh whenever opened.
+            Ai.refreshChatList();
+        }
+
+        Timer {
+            id: pendingDeleteResetTimer
+            interval: 2500
+            repeat: false
+            onTriggered: root.__pendingDeleteChatId = -1
+        }
+
+        WindowDialogTitle {
+            text: Translation.tr("Chats")
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            color: Appearance.m3colors.m3onSurfaceVariant
+            font.pixelSize: Appearance.font.pixelSize.small
+            text: Translation.tr("Switch between sessions, create new ones, rename them, or delete old chats.")
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            color: Appearance.colors.colLayer2
+            radius: Appearance.rounding.small
+            implicitHeight: chatListColumn.implicitHeight + 10 * 2
+
+            ColumnLayout {
+                id: chatListColumn
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 6
+
+                StyledText {
+                    Layout.fillWidth: true
+                    font.pixelSize: Appearance.font.pixelSize.small
+                    color: Appearance.colors.colSubtext
+                    text: Translation.tr("Sessions")
+                }
+
+                Loader {
+                    Layout.fillWidth: true
+                    active: (Ai.chatList?.length ?? 0) === 0
+                    sourceComponent: StyledText {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        color: Appearance.colors.colSubtext
+                        font.pixelSize: Appearance.font.pixelSize.small
+                        text: Translation.tr("No chats found.")
+                    }
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    // Keep the list area bounded inside the dialog.
+                    implicitHeight: Math.min(280, listInner.implicitHeight)
+                    clip: true
+                    visible: (Ai.chatList?.length ?? 0) > 0
+
+                    ColumnLayout {
+                        id: listInner
+                        width: parent.width
+                        spacing: 6
+
+                        Repeater {
+                            model: Ai.chatList ?? []
+                            delegate: Rectangle {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                implicitHeight: row.implicitHeight + 8 * 2
+                                height: implicitHeight
+                                radius: Appearance.rounding.small
+                                color: (modelData?.id === Ai.currentChatId)
+                                    ? Appearance.colors.colSecondaryContainer
+                                    : Appearance.colors.colLayer1
+
+                                property bool hovered: false
+
+                                RowLayout {
+                                    id: row
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 10
+
+                                    // Click area for switching chats (exclude action buttons on the right).
+                                    MouseArea {
+                                        id: switchArea
+                                        anchors {
+                                            left: parent.left
+                                            top: parent.top
+                                            bottom: parent.bottom
+                                            // Keep right side free for edit/delete buttons.
+                                            right: editChatButton.left
+                                        }
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        enabled: root.__editingChatId !== (modelData?.id ?? -999)
+                                        onEntered: parent.parent.hovered = true
+                                        onExited: parent.parent.hovered = false
+                                        onClicked: {
+                                            const cid = modelData?.id;
+                                            if (typeof cid !== "number") return;
+                                            if (cid === Ai.currentChatId) {
+                                                chatManagerDialog.dismiss();
+                                                return;
+                                            }
+                                            Ai.loadChatById(cid, true /* quiet */);
+                                            chatManagerDialog.dismiss();
+                                        }
+                                    }
+
+                                    Item {
+                                        Layout.alignment: Qt.AlignVCenter
+                                        implicitWidth: 22
+                                        implicitHeight: 22
+                                        MaterialSymbol {
+                                            anchors.centerIn: parent
+                                            text: (modelData?.id === Ai.currentChatId) ? "check_circle" : "chat_bubble"
+                                            iconSize: Appearance.font.pixelSize.normal
+                                            color: (modelData?.id === Ai.currentChatId)
+                                                ? Appearance.m3colors.m3onSecondaryContainer
+                                                : Appearance.colors.colSubtext
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Loader {
+                                            Layout.fillWidth: true
+                                            active: root.__editingChatId === (modelData?.id ?? -999)
+                                            sourceComponent: MaterialTextField {
+                                                Layout.fillWidth: true
+                                                placeholderText: Translation.tr("Chat name")
+                                                text: root.__editingChatNameDraft
+                                                onTextChanged: root.__editingChatNameDraft = text
+                                            }
+                                        }
+
+                                        Loader {
+                                            Layout.fillWidth: true
+                                            active: root.__editingChatId !== (modelData?.id ?? -999)
+                                            sourceComponent: StyledText {
+                                                Layout.fillWidth: true
+                                                elide: Text.ElideRight
+                                                font.pixelSize: Appearance.font.pixelSize.small
+                                                color: (modelData?.id === Ai.currentChatId)
+                                                    ? Appearance.m3colors.m3onSecondaryContainer
+                                                    : Appearance.colors.colOnLayer1
+                                                text: {
+                                                    const n = (modelData?.name ?? "").trim();
+                                                    return n.length > 0 ? n : Translation.tr("Unnamed")
+                                                }
+                                            }
+                                        }
+
+                                        StyledText {
+                                            Layout.fillWidth: true
+                                            font.pixelSize: Appearance.font.pixelSize.smaller
+                                            color: Appearance.colors.colSubtext
+                                            text: `#${modelData?.id ?? "?"}`
+                                        }
+                                    }
+
+                                    // Rename button / confirm-cancel while editing
+                                    RippleButton {
+                                        id: editChatButton
+                                        implicitWidth: 28
+                                        implicitHeight: 28
+                                        Layout.alignment: Qt.AlignVCenter
+                                        buttonRadius: Appearance.rounding.small
+                                        padding: 0
+                                        colBackground: ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
+                                        colBackgroundHover: Appearance.colors.colLayer2Hover
+                                        colRipple: Appearance.colors.colLayer2Active
+
+                                        contentItem: MaterialSymbol {
+                                            anchors.fill: parent
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: (root.__editingChatId === modelData?.id) ? "check" : "edit"
+                                            iconSize: Appearance.font.pixelSize.normal
+                                            color: Appearance.colors.colSubtext
+                                        }
+
+                                        onClicked: {
+                                            const cid = modelData?.id;
+                                            if (typeof cid !== "number") return;
+                                            if (root.__editingChatId !== cid) {
+                                                root.__editingChatId = cid;
+                                                root.__editingChatNameDraft = (modelData?.name ?? "").toString();
+                                                return;
+                                            }
+
+                                            // Confirm rename
+                                            const nextName = (root.__editingChatNameDraft ?? "").trim();
+                                            Ai.renameChatById(cid, nextName, true /* quiet */);
+                                            root.__editingChatId = -1;
+                                            root.__editingChatNameDraft = "";
+                                        }
+
+                                        StyledToolTip {
+                                            extraVisibleCondition: false
+                                            alternativeVisibleCondition: editChatButton.hovered
+                                            text: (root.__editingChatId === modelData?.id)
+                                                ? Translation.tr("Save")
+                                                : Translation.tr("Rename")
+                                        }
+                                    }
+
+                                    RippleButton {
+                                        id: cancelEditChatButton
+                                        visible: root.__editingChatId === modelData?.id
+                                        implicitWidth: 28
+                                        implicitHeight: 28
+                                        Layout.alignment: Qt.AlignVCenter
+                                        buttonRadius: Appearance.rounding.small
+                                        padding: 0
+                                        colBackground: ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
+                                        colBackgroundHover: Appearance.colors.colLayer2Hover
+                                        colRipple: Appearance.colors.colLayer2Active
+
+                                        contentItem: MaterialSymbol {
+                                            anchors.fill: parent
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: "close"
+                                            iconSize: Appearance.font.pixelSize.normal
+                                            color: Appearance.colors.colSubtext
+                                        }
+
+                                        onClicked: {
+                                            root.__editingChatId = -1;
+                                            root.__editingChatNameDraft = "";
+                                        }
+
+                                        StyledToolTip {
+                                            extraVisibleCondition: false
+                                            alternativeVisibleCondition: cancelEditChatButton.hovered
+                                            text: Translation.tr("Cancel")
+                                        }
+                                    }
+
+                                    RippleButton {
+                                        id: deleteChatButton
+                                        implicitWidth: 28
+                                        implicitHeight: 28
+                                        Layout.alignment: Qt.AlignVCenter
+                                        visible: root.__editingChatId !== modelData?.id
+                                        buttonRadius: Appearance.rounding.small
+                                        padding: 0
+                                        colBackground: (root.__pendingDeleteChatId === modelData?.id)
+                                            ? Appearance.colors.colErrorContainer
+                                            : ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
+                                        colBackgroundHover: Appearance.colors.colLayer2Hover
+                                        colRipple: Appearance.colors.colLayer2Active
+
+                                        contentItem: MaterialSymbol {
+                                            anchors.fill: parent
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: "delete"
+                                            iconSize: Appearance.font.pixelSize.normal
+                                            color: (root.__pendingDeleteChatId === modelData?.id)
+                                                ? Appearance.m3colors.m3onErrorContainer
+                                                : Appearance.colors.colSubtext
+                                        }
+
+                                        onClicked: {
+                                            const cid = modelData?.id;
+                                            if (typeof cid !== "number") return;
+                                            if (root.__pendingDeleteChatId !== cid) {
+                                                root.__pendingDeleteChatId = cid;
+                                                pendingDeleteResetTimer.restart();
+                                                return;
+                                            }
+                                            root.__pendingDeleteChatId = -1;
+                                            pendingDeleteResetTimer.stop();
+                                            Ai.deleteChatById(cid, true /* quiet */);
+                                            // Keep dialog open; list will refresh via Ai.deleteChatById -> refreshChatList.
+                                        }
+
+                                        StyledToolTip {
+                                            extraVisibleCondition: false
+                                            alternativeVisibleCondition: deleteChatButton.hovered
+                                            text: (root.__pendingDeleteChatId === modelData?.id)
+                                                ? Translation.tr("Click again to delete")
+                                                : Translation.tr("Delete")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            MaterialTextField {
+                id: newChatNameField
+                Layout.fillWidth: true
+                placeholderText: Translation.tr("New chat name (optional)")
+                text: root.newChatNameDraft
+                onTextChanged: root.newChatNameDraft = text
+            }
+
+            DialogButton {
+                buttonText: Translation.tr("New")
+                onClicked: {
+                    Ai.createNewChat(root.newChatNameDraft, true /* quiet */);
+                    chatManagerDialog.dismiss();
+                }
+            }
+        }
+
+        WindowDialogButtonRow {
+            DialogButton {
+                buttonText: Translation.tr("Close")
+                onClicked: chatManagerDialog.dismiss()
+            }
+
+            Item { Layout.fillWidth: true }
+
+            DialogButton {
+                buttonText: Translation.tr("Refresh")
+                onClicked: Ai.refreshChatList()
             }
         }
     }

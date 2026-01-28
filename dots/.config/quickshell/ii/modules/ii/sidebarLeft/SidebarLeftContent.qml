@@ -17,12 +17,16 @@ Item {
     property bool translatorEnabled: Config.options.sidebar.translator.enable
     property bool animeEnabled: Config.options.policies.weeb !== 0
     property bool animeCloset: Config.options.policies.weeb === 2
-    property var tabButtonList: [
-        ...(root.aiChatEnabled ? [{"icon": "neurology", "name": Translation.tr("Intelligence")}] : []),
-        ...(root.translatorEnabled ? [{"icon": "translate", "name": Translation.tr("Translator")}] : []),
-        ...((root.animeEnabled && !root.animeCloset) ? [{"icon": "bookmark_heart", "name": Translation.tr("Anime")}] : [])
+
+    // Keep tabs and pages in sync. Do not insert "invisible" pages in between;
+    // SwipeView indexes must correspond 1:1 with ToolbarTabBar indexes.
+    property var tabDefs: [
+        ...(root.aiChatEnabled ? [{"key": "ai", "icon": "neurology", "name": Translation.tr("Intelligence")}] : []),
+        ...(root.translatorEnabled ? [{"key": "translator", "icon": "translate", "name": Translation.tr("Translator")}] : []),
+        ...((root.animeEnabled && !root.animeCloset) ? [{"key": "anime", "icon": "bookmark_heart", "name": Translation.tr("Anime")}] : [])
     ]
-    property int tabCount: swipeView.count
+    property var tabButtonList: (root.tabDefs ?? []).map(d => ({"icon": d.icon, "name": d.name}))
+    property int tabCount: (root.tabDefs?.length ?? 0)
 
     function focusActiveItem() {
         swipeView.currentItem.forceActiveFocus()
@@ -76,49 +80,65 @@ Item {
                 spacing: 10
                 currentIndex: tabBar.currentIndex
 
+                visible: (root.tabDefs?.length ?? 0) > 0
+
                 clip: true
                 // layer disabled to fix fractional scaling blur
                 layer.enabled: false
 
-                // Use Loader for better object lifecycle management.
-                // Static Loaders avoid the createObject() re-creation issue on every binding update.
-                Loader {
-                    active: root.aiChatEnabled
-                    visible: active
-                    sourceComponent: Component {
-                        AiChat {
-                            outputScale: root.outputScale
-                            dialogOverlayParent: root
+                Repeater {
+                    model: root.tabDefs ?? []
+                    delegate: Loader {
+                        required property var modelData
+                        active: true
+                        visible: true
+                        sourceComponent: {
+                            const k = modelData?.key;
+                            if (k === "ai") return aiChatPage;
+                            if (k === "translator") return translatorPage;
+                            if (k === "anime") return animePage;
+                            return placeholderPage;
                         }
                     }
                 }
-                Loader {
-                    active: root.translatorEnabled
-                    visible: active
-                    sourceComponent: Component {
-                        Translator {}
-                    }
-                }
-                Loader {
-                    active: root.tabButtonList.length === 0 || (!root.aiChatEnabled && !root.translatorEnabled && root.animeCloset)
-                    visible: active
-                    sourceComponent: Component {
-                        Item {
-                            StyledText {
-                                anchors.centerIn: parent
-                                text: root.animeCloset ? Translation.tr("Nothing") : Translation.tr("Enjoy your empty sidebar...")
-                                color: Appearance.colors.colSubtext
-                            }
-                        }
-                    }
-                }
-                Loader {
-                    active: root.animeEnabled
-                    visible: active
-                    sourceComponent: Component {
-                        Anime {}
-                    }
-                }
+            }
+
+            // Placeholder when no tabs are enabled.
+            Loader {
+                anchors.fill: parent
+                active: (root.tabDefs?.length ?? 0) === 0
+                visible: active
+                sourceComponent: placeholderPage
+            }
+        }
+    }
+
+    // Page components (referenced by SwipeView delegates)
+    Component {
+        id: aiChatPage
+        AiChat {
+            outputScale: root.outputScale
+            dialogOverlayParent: root
+        }
+    }
+
+    Component {
+        id: translatorPage
+        Translator {}
+    }
+
+    Component {
+        id: animePage
+        Anime {}
+    }
+
+    Component {
+        id: placeholderPage
+        Item {
+            StyledText {
+                anchors.centerIn: parent
+                text: root.animeCloset ? Translation.tr("Nothing") : Translation.tr("Enjoy your empty sidebar...")
+                color: Appearance.colors.colSubtext
             }
         }
     }

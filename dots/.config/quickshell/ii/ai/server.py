@@ -139,13 +139,59 @@ def get_db() -> sqlite3.Connection:
 
 def list_chats() -> List[Dict[str, Any]]:
     with _db_lock:
-        cur = get_db().execute("SELECT * FROM chats ORDER BY updated_at DESC")
+        conn = get_db()
+
+        # Auto-prune empty unnamed chats.
+        # Motivation: UI-driven session creation can leave behind empty drafts.
+        # Safety: keep the most recently updated chat even if empty (likely the current one).
+        grace_seconds = 120
+        try:
+            most_recent = conn.execute(
+                "SELECT id FROM chats ORDER BY updated_at DESC LIMIT 1"
+            ).fetchone()
+            keep_id = int(most_recent["id"]) if most_recent else -1
+            threshold = conn.execute(
+                "SELECT strftime('%s','now') - ? AS t", (grace_seconds,)
+            ).fetchone()["t"]
+            conn.execute(
+                """
+                DELETE FROM chats
+                 WHERE trim(name) = ''
+                   AND updated_at < ?
+                   AND id != ?
+                   AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = chats.id)
+                """,
+                (threshold, keep_id),
+            )
+            conn.commit()
+        except Exception:
+            # Never fail listing due to cleanup.
+            pass
+
+        cur = conn.execute(
+            """
+            SELECT c.*, (
+                SELECT COUNT(1) FROM messages m WHERE m.chat_id = c.id
+            ) AS message_count
+              FROM chats c
+          ORDER BY c.updated_at DESC
+            """
+        )
         return [dict(r) for r in cur.fetchall()]
 
 
 def get_chat(chat_id: int) -> Optional[Dict[str, Any]]:
     with _db_lock:
-        cur = get_db().execute("SELECT * FROM chats WHERE id = ?", (chat_id,))
+        cur = get_db().execute(
+            """
+            SELECT c.*, (
+                SELECT COUNT(1) FROM messages m WHERE m.chat_id = c.id
+            ) AS message_count
+              FROM chats c
+             WHERE c.id = ?
+            """,
+            (chat_id,),
+        )
         row = cur.fetchone()
         return dict(row) if row else None
 
