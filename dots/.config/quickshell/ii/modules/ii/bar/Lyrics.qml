@@ -30,42 +30,6 @@ Item {
     readonly property string mainText: _truncate(SPlayerLyrics.main)
     readonly property string translationText: _truncate(SPlayerLyrics.translation)
 
-    // Local prediction (UI-side) to keep fill smooth even if backend updates are sparse.
-    // We intentionally compute this in the visible component so it refreshes at frame-ish cadence.
-    readonly property int offsetMs: (Config.options?.bar?.lyrics?.offsetMs ?? 0)
-    property int predictedPlayheadMs: 0
-    property real predictedLineProgress: -1
-
-    Timer {
-        id: localPredictTimer
-        interval: 16
-        repeat: true
-        running: root.enabled && SPlayerLyrics.connected
-        onTriggered: {
-            const now = Date.now();
-            const reportedAt = Number(SPlayerLyrics._reportedAtMs ?? 0);
-            const reportedTime = Number(SPlayerLyrics._reportedTime ?? 0);
-            const rate = Number(SPlayerLyrics._playbackRate ?? 1.0);
-            const age = now - reportedAt;
-
-            // If we haven't received progress recently (pause/stop), don't keep advancing.
-            const predicted = (age >= 0 && age < 3000)
-                ? (reportedTime + age * (Number.isFinite(rate) ? rate : 1.0) + root.offsetMs)
-                : reportedTime;
-
-            root.predictedPlayheadMs = predicted;
-
-            const ls = Number(SPlayerLyrics.lineStart ?? 0);
-            const le = Number(SPlayerLyrics.lineEnd ?? 0);
-            if (ls > 0 && le > ls) {
-                const p = (predicted - ls) / (le - ls);
-                root.predictedLineProgress = Math.max(0, Math.min(1, p));
-            } else {
-                root.predictedLineProgress = -1;
-            }
-        }
-    }
-
     readonly property bool waitingForLyrics: root.enabled && SPlayerLyrics.connected && root.mainText.length === 0
     readonly property bool disconnected: root.enabled && !SPlayerLyrics.connected
 
@@ -76,7 +40,7 @@ Item {
     readonly property real mainScrollProgress: {
         const a = 0.15;  // syncScrollStartAt
         const b = 0.95;  // syncScrollEndAt
-        const fp = root.predictedLineProgress;
+        const fp = Number(SPlayerLyrics.lineProgress ?? -1);
         if (fp < 0) return -1;
         if (b - a <= 0.0001) return Math.max(0, Math.min(1, fp));
         return Math.max(0, Math.min(1, (fp - a) / (b - a)));
@@ -421,11 +385,11 @@ Item {
             centerText: (root.mainText.length === 0)
             text: root.mainDisplayText
             dwellMs: (SPlayerLyrics.lineDuration ?? 0)
-            externalFillProgress: (root.predictedLineProgress ?? -1)
+            externalFillProgress: (SPlayerLyrics.lineProgress ?? -1)
             fillAnimDurationMs: (SPlayerLyrics.updateIntervalMs ?? 150)
             isTransition: (SPlayerLyrics.isTransition ?? false)
             segments: (SPlayerLyrics.segments ?? [])
-            playheadTimeMs: (root.predictedPlayheadMs ?? 0)
+            playheadTimeMs: (SPlayerLyrics.time ?? 0)
         }
 
         // Translation line: sync scroll with main line, no fill.

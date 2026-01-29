@@ -228,6 +228,16 @@ let lastProgressEmitAt = 0;
 
 let lastSongKey = '';
 
+function emitTimeline(source) {
+  if (!Array.isArray(lines) || lines.length === 0) return;
+  emit({
+    type: 'timeline',
+    source: source || 'unknown',
+    songKey: lastSongKey,
+    lines,
+  });
+}
+
 function resetLyricsState(keepLines = false) {
   // keepLines=true: preserve cached lyrics (for single-loop / seeking)
   if (!keepLines) {
@@ -246,6 +256,9 @@ function restoreCachedLyricsState() {
   lastSongKey = (typeof cached.songKey === 'string') ? cached.songKey : '';
   // Force re-emit on next progress tick.
   lastIdx = -2;
+  // Also emit timeline immediately so QS can animate locally even before
+  // the next lyric-change arrives.
+  emitTimeline('cache');
 }
 
 function scheduleReconnect() {
@@ -335,6 +348,8 @@ function connect() {
           (msg?.data && (msg.data.songId ?? msg.data.musicId ?? msg.data.id ?? msg.data.hash)) ?? '';
         lastSongKey = (songKey != null) ? String(songKey) : '';
         saveCache({ lines: newLines, songKey: lastSongKey });
+        // Emit full timeline for QS-side animation.
+        emitTimeline('api');
         // Force re-emit on next progress tick
         lastIdx = -2;
         break;
@@ -378,6 +393,7 @@ function connect() {
           emit({
             type: 'progress',
             time: t,
+            seeked: didSeek,
             idx,
             lineStart,
             lineEnd,
