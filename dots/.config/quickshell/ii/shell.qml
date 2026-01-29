@@ -28,6 +28,7 @@ ShellRoot {
         FirstRunExperience.load()
         ConflictKiller.load()
         Cliphist.refresh()
+        ClipboardTranslateTrigger.load()
         Wallpapers.load()
         Updates.load()
     }

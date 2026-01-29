@@ -521,6 +521,11 @@ Singleton {
                 property JsonObject translator: JsonObject {
                     property bool enable: false
                     property int delay: 300 // Delay before sending request. Reduces (potential) rate limits and lag.
+                    // Double Ctrl+C (double-copy) to translate clipboard text.
+                    // Implemented by detecting clipboard updates, not by grabbing key events.
+                    property bool doubleCopyTranslateClipboard: false
+                    // Max time between two identical clipboard updates to be considered a double-copy.
+                    property int doubleCopyIntervalMs: 450
                 }
                 property JsonObject ai: JsonObject {
                     property bool textFadeIn: false

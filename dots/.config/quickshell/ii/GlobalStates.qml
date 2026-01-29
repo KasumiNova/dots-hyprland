@@ -12,6 +12,12 @@ Singleton {
     property bool barOpen: true
     property bool crosshairOpen: false
     property bool sidebarLeftOpen: false
+    // Optional: request a specific tab in the left sidebar when opening it.
+    // Expected values: "ai" | "translator" | "anime" | "" (no request)
+    property string sidebarLeftRequestedTab: ""
+    // Optional: request the Translator page to preload clipboard text.
+    // The Translator page should consume (clear) this after applying it.
+    property string sidebarLeftTranslatorRequestedText: ""
     property bool sidebarRightOpen: false
     property bool mediaControlsOpen: false
     property bool osdBrightnessOpen: false

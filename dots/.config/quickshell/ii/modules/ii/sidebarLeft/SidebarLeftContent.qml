@@ -1,3 +1,4 @@
+import qs
 import qs.services
 import qs.modules.common
 import qs.modules.common.widgets
@@ -32,6 +33,20 @@ Item {
         swipeView.currentItem.forceActiveFocus()
     }
 
+    function _applyRequestedTab() {
+        const key = (GlobalStates.sidebarLeftRequestedTab ?? "").trim();
+        if (key.length === 0) return;
+        const idx = (root.tabDefs ?? []).findIndex(d => d?.key === key);
+        if (idx >= 0) {
+            // Only set TabBar; SwipeView follows via binding (swipeView.currentIndex: tabBar.currentIndex)
+            tabBar.setCurrentIndex(idx);
+            Qt.callLater(() => {
+                try { root.focusActiveItem(); } catch (e) {}
+            });
+            GlobalStates.sidebarLeftRequestedTab = "";
+        }
+    }
+
     Keys.onPressed: (event) => {
         if (event.modifiers === Qt.ControlModifier) {
             if (event.key === Qt.Key_PageDown) {
@@ -42,6 +57,16 @@ Item {
                 swipeView.decrementCurrentIndex()
                 event.accepted = true;
             }
+        }
+    }
+
+    Connections {
+        target: GlobalStates
+        function onSidebarLeftOpenChanged() {
+            if (GlobalStates.sidebarLeftOpen) root._applyRequestedTab();
+        }
+        function onSidebarLeftRequestedTabChanged() {
+            if (GlobalStates.sidebarLeftOpen) root._applyRequestedTab();
         }
     }
 
