@@ -14,12 +14,49 @@ Singleton {
     property string query: ""
 
     function ensurePrefix(prefix) {
-        if ([Config.options.search.prefix.action, Config.options.search.prefix.app, Config.options.search.prefix.clipboard, Config.options.search.prefix.emojis, Config.options.search.prefix.math, Config.options.search.prefix.shellCommand, Config.options.search.prefix.webSearch,].some(i => root.query.startsWith(i))) {
-            root.query = prefix + root.query.slice(1);
+        const prefixes = [
+            Config.options.search.prefix.action,
+            Config.options.search.prefix.app,
+            Config.options.search.prefix.clipboard,
+            Config.options.search.prefix.emojis,
+            Config.options.search.prefix.files,
+            Config.options.search.prefix.math,
+            Config.options.search.prefix.shellCommand,
+            Config.options.search.prefix.webSearch,
+        ].filter(p => typeof p === "string" && p.length > 0);
+
+        const existing = prefixes.find(p => root.query.startsWith(p));
+        if (existing) {
+            root.query = String(prefix) + root.query.slice(existing.length);
         } else {
-            root.query = prefix + root.query;
+            root.query = String(prefix) + root.query;
         }
     }
+
+    function refreshFileSearch() {
+        const prefix = Config.options.search.prefix.files;
+        if (typeof prefix !== "string" || !prefix.length) {
+            FileSearch.reset();
+            return;
+        }
+
+        if (!root.query.startsWith(prefix)) {
+            FileSearch.reset();
+            return;
+        }
+
+        const parsed = FileSearchUtils.parse(root.query, prefix, Config.options.search.files);
+        const term = (parsed.term ?? "").trim();
+        const minLen = Config.options.search.files.minQueryLength;
+        if (term.length < minLen) {
+            FileSearch.reset();
+            return;
+        }
+
+        FileSearch.request(term, parsed.spec);
+    }
+
+    onQueryChanged: refreshFileSearch()
 
     // https://specifications.freedesktop.org/menu/latest/category-registry.html
     property list<string> mainRegisteredCategories: ["AudioVideo", "Development", "Education", "Game", "Graphics", "Network", "Office", "Science", "Settings", "System", "Utility"]
@@ -168,6 +205,83 @@ Singleton {
         ////////////////// Skip? //////////////////
         if (root.query == "")
             return [];
+
+        ///////////////// File search /////////////////
+        if (root.query.startsWith(Config.options.search.prefix.files)) {
+            const parsed = FileSearchUtils.parse(root.query, Config.options.search.prefix.files, Config.options.search.files);
+            const term = (parsed.term ?? "").trim();
+            const minLen = Config.options.search.files.minQueryLength;
+
+            if (term.length < minLen) {
+                return [resultComp.createObject(null, {
+                    name: Translation.tr("Type at least %1 characters").arg(minLen),
+                    verb: "",
+                    type: Translation.tr("File search"),
+                    iconName: "manage_search",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {}
+                })];
+            }
+
+            if (FileSearch.errorMessage && FileSearch.errorMessage.length) {
+                return [resultComp.createObject(null, {
+                    name: FileSearch.errorMessage,
+                    comment: FileSearch.errorDetails,
+                    verb: "",
+                    type: Translation.tr("File search"),
+                    iconName: "error",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {}
+                })];
+            }
+
+            if (FileSearch.running && (FileSearch.results?.length ?? 0) === 0) {
+                return [resultComp.createObject(null, {
+                    name: Translation.tr("Searching…"),
+                    verb: "",
+                    type: Translation.tr("File search"),
+                    iconName: "progress_activity",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {}
+                })];
+            }
+
+            return (FileSearch.results ?? []).map(item => {
+                const isDir = !!item.isDir;
+                const path = String(item.path ?? "");
+                const parent = String(item.parent ?? "");
+                return resultComp.createObject(null, {
+                    rawValue: path,
+                    name: String(item.name ?? path),
+                    comment: path,
+                    verb: Translation.tr("Open"),
+                    type: isDir ? Translation.tr("Folder") : Translation.tr("File"),
+                    iconName: isDir ? "folder" : "description",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {
+                        Quickshell.execDetached(["xdg-open", path]);
+                    },
+                    actions: [
+                        resultComp.createObject(null, {
+                            name: Translation.tr("Copy path"),
+                            iconName: "content_copy",
+                            iconType: LauncherSearchResult.IconType.Material,
+                            execute: () => {
+                                Quickshell.clipboardText = path;
+                            }
+                        }),
+                        resultComp.createObject(null, {
+                            name: Translation.tr("Open parent"),
+                            iconName: "drive_folder_upload",
+                            iconType: LauncherSearchResult.IconType.Material,
+                            execute: () => {
+                                if (parent && parent.length) Quickshell.execDetached(["xdg-open", parent]);
+                            }
+                        })
+                    ]
+                });
+            }).filter(Boolean);
+        }
 
         ///////////// Special cases ///////////////
         if (root.query.startsWith(Config.options.search.prefix.clipboard)) {

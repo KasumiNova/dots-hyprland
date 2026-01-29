@@ -18,6 +18,7 @@ RippleButton {
     property bool entryShown: entry?.shown ?? true
     property string itemType: entry?.type ?? Translation.tr("App")
     property string itemName: entry?.name ?? ""
+    property string itemComment: entry?.comment ?? ""
     property var iconType: entry?.iconType
     property string iconName: entry?.iconName ?? ""
     property var itemExecute: entry?.execute
@@ -224,6 +225,15 @@ RippleButton {
                     elide: Text.ElideRight
                     text: `${root.displayContent}`
                 }
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                visible: root.itemComment && root.itemComment.length > 0
+                font.pixelSize: Appearance.font.pixelSize.smaller
+                color: Appearance.colors.colSubtext
+                elide: Text.ElideRight
+                text: root.itemComment
             }
             Loader { // Clipboard image preview
                 active: root.cliphistRawString && Cliphist.entryIsImage(root.cliphistRawString)

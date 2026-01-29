@@ -108,6 +108,16 @@ WChoiceButton {
 
         WText {
             Layout.fillWidth: true
+            visible: root.entry.comment && root.entry.comment.length > 0
+            text: root.entry.comment
+            color: Looks.colors.subfg
+            font.pixelSize: Looks.font.pixelSize.normal
+            maximumLineCount: 1
+            elide: Text.ElideRight
+        }
+
+        WText {
+            Layout.fillWidth: true
             visible: root.firstEntry
             text: root.entry.type
             color: Looks.colors.accentUnfocused

@@ -506,9 +506,26 @@ Singleton {
                     property string app: ">"
                     property string clipboard: ";"
                     property string emojis: ":"
+                    // Dedicated file search mode (single-character prefix recommended)
+                    property string files: "#"
                     property string math: "="
                     property string shellCommand: "$"
                     property string webSearch: "?"
+                }
+                property JsonObject files: JsonObject {
+                    // Backend selection: "plocate" (fast path index) or "baloo" (desktop index)
+                    property string backend: "plocate"
+                    // UI/service defaults
+                    property int limit: 80
+                    property int debounceMs: 120
+                    property int minQueryLength: 2
+                    // Search scope: "path" (full path) or "name" (basename)
+                    property string defaultScope: "name"
+                    // Result type filter: "any" | "file" | "dir"
+                    property string defaultType: "any"
+                    // Optional path filters (prefix match). Empty means no restriction.
+                    property list<string> includePaths: []
+                    property list<string> excludePaths: []
                 }
                 property JsonObject imageSearch: JsonObject {
                     property string imageSearchEngineBaseUrl: "https://lens.google.com/uploadbyurl?url="

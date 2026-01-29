@@ -1,9 +1,10 @@
 pragma ComponentBehavior: Bound
 
 import Qt.labs.synchronizer
-import Qt5Compat.GraphicalEffects
 import QtQuick
+import QtQuick.Window
 import QtQuick.Layouts
+import QtQuick.Shapes
 import Quickshell
 
 import qs
@@ -113,6 +114,9 @@ Item { // Wrapper
         radius: searchBar.height / 2 + searchBar.verticalPadding
         color: Appearance.colors.colBackgroundSurfaceContainer
 
+        // 不使用 layer.effect/OpacityMask，避免离屏渲染导致的模糊
+        // 圆角由 Rectangle 的 radius 属性提供，clip: true 按矩形边界裁剪
+
         Behavior on implicitHeight {
             id: searchHeightBehavior
             enabled: GlobalStates.overviewOpen && root.showResults
@@ -126,16 +130,6 @@ Item { // Wrapper
                 horizontalCenter: parent.horizontalCenter
             }
             spacing: 0
-
-            // clip: true
-            layer.enabled: true
-            layer.effect: OpacityMask {
-                maskSource: Rectangle {
-                    width: searchWidgetContent.width
-                    height: searchWidgetContent.width
-                    radius: searchWidgetContent.radius
-                }
-            }
 
             SearchBar {
                 id: searchBar
@@ -158,71 +152,80 @@ Item { // Wrapper
                 color: Appearance.colors.colOutlineVariant
             }
 
-            ListView { // App results
-                id: appResults
+            FileSearchOptions {
+                visible: root.showResults && LauncherSearch.query.startsWith(Config.options.search.prefix.files)
+                Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.topMargin: 8
+            }
+
+            // 外层容器：用于裁剪滚动时溢出圆角的内容
+            Item {
+                id: listViewWrapper
                 visible: root.showResults
                 Layout.fillWidth: true
-                implicitHeight: Math.min(600, appResults.contentHeight + topMargin + bottomMargin)
+                Layout.leftMargin: 0
+                Layout.rightMargin: 0
+                Layout.bottomMargin: 8
+                implicitHeight: Math.min(600, appResults.contentHeight + appResults.topMargin + appResults.bottomMargin)
                 clip: true
-                topMargin: 10
-                bottomMargin: 10
-                spacing: 2
-                KeyNavigation.up: searchBar
-                highlightMoveDuration: 100
 
-                onFocusChanged: {
-                    if (focus)
-                        appResults.currentIndex = 1;
-                }
+                ListView { // App results
+                    id: appResults
+                    anchors.fill: parent
+                    clip: true
+                    topMargin: 10
+                    bottomMargin: 2
+                    spacing: 2
+                    KeyNavigation.up: searchBar
+                    highlightMoveDuration: 100
 
-                Connections {
-                    target: root
-                    function onSearchingTextChanged() {
-                        if (appResults.count > 0)
-                            appResults.currentIndex = 0;
+                    onFocusChanged: {
+                        if (focus)
+                            appResults.currentIndex = 1;
                     }
-                }
 
-                Timer {
-                    id: debounceTimer
-                    interval: root.typingDebounceInterval
-                    onTriggered: {
-                        resultModel.values = LauncherSearch.results ?? [];
+                    Connections {
+                        target: root
+                        function onSearchingTextChanged() {
+                            if (appResults.count > 0)
+                                appResults.currentIndex = 0;
+                        }
                     }
-                }
 
-                Connections {
-                    target: LauncherSearch
-                    function onResultsChanged() {
-                        resultModel.values = LauncherSearch.results.slice(0, root.typingResultLimit);
-                        root.focusFirstItem();
-                        debounceTimer.restart();
+                    Connections {
+                        target: LauncherSearch
+                        function onResultsChanged() {
+                            resultModel.values = LauncherSearch.results.slice(0, root.typingResultLimit);
+                            root.focusFirstItem();
+                        }
                     }
-                }
 
-                model: ScriptModel {
-                    id: resultModel
-                    objectProp: "key"
-                }
+                    model: ScriptModel {
+                        id: resultModel
+                        objectProp: "key"
+                    }
 
-                delegate: SearchItem {
-                    id: searchItem
-                    // The selectable item for each search result
-                    required property var modelData
-                    anchors.left: parent?.left
-                    anchors.right: parent?.right
-                    entry: modelData
-                    query: StringUtils.cleanOnePrefix(root.searchingText, [Config.options.search.prefix.action, Config.options.search.prefix.app, Config.options.search.prefix.clipboard, Config.options.search.prefix.emojis, Config.options.search.prefix.math, Config.options.search.prefix.shellCommand, Config.options.search.prefix.webSearch])
+                    delegate: SearchItem {
+                        id: searchItem
+                        // The selectable item for each search result
+                        required property var modelData
+                        anchors.left: parent?.left
+                        anchors.right: parent?.right
+                        entry: modelData
+                        query: StringUtils.cleanOnePrefix(root.searchingText, [Config.options.search.prefix.action, Config.options.search.prefix.app, Config.options.search.prefix.clipboard, Config.options.search.prefix.emojis, Config.options.search.prefix.files, Config.options.search.prefix.math, Config.options.search.prefix.shellCommand, Config.options.search.prefix.webSearch])
 
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Tab) {
-                            if (LauncherSearch.results.length === 0)
-                                return;
-                            const tabbedText = searchItem.modelData.name;
-                            LauncherSearch.query = tabbedText;
-                            searchBar.searchInput.text = tabbedText;
-                            event.accepted = true;
-                            root.focusSearchInput();
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Tab) {
+                                if (LauncherSearch.results.length === 0)
+                                    return;
+                                const tabbedText = searchItem.modelData.name;
+                                LauncherSearch.query = tabbedText;
+                                searchBar.searchInput.text = tabbedText;
+                                event.accepted = true;
+                                root.focusSearchInput();
+                            }
                         }
                     }
                 }
