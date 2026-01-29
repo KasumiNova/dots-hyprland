@@ -19,16 +19,10 @@ Item {
     implicitWidth: targetWidth
     implicitHeight: Appearance.sizes.baseBarHeight
 
-    function _truncate(str) {
-        const s = (str ?? "").toString();
-        const limit = Math.max(0, root.maxChars);
-        if (limit <= 0) return "";
-        if (s.length <= limit) return s;
-        return s.slice(0, Math.max(0, limit - 1)) + "…";
-    }
-
-    readonly property string mainText: _truncate(SPlayerLyrics.main)
-    readonly property string translationText: _truncate(SPlayerLyrics.translation)
+    // NOTE: Don't manually truncate here.
+    // Long lines should scroll, not turn into an ellipsis.
+    readonly property string mainText: ((SPlayerLyrics.main ?? "").toString())
+    readonly property string translationText: ((SPlayerLyrics.translation ?? "").toString())
 
     readonly property bool waitingForLyrics: root.enabled && SPlayerLyrics.connected && root.mainText.length === 0
     readonly property bool disconnected: root.enabled && !SPlayerLyrics.connected
@@ -109,23 +103,33 @@ Item {
             }
         }
 
-        readonly property real naturalWidth: {
-            const tr = metrics.tightBoundingRect;
-            const br = metrics.boundingRect;
-            const w = (tr && tr.width > 0) ? tr.width : ((br && br.width > 0) ? br.width : metrics.width);
-            return Math.ceil(w);
-        }
+        readonly property real naturalWidth: Math.ceil(line._metricWidth(metrics))
         readonly property real contentWidthWithSlack: line.naturalWidth + line.scrollEndSlackPx
         readonly property real maxScrollX: Math.max(0, line.contentWidthWithSlack - flick.width)
         readonly property bool shouldScroll: line.useScroll && line.maxScrollX > 1 && (line.dwellMs <= 0 || line.dwellMs >= 1800)
 
         property real fillProgress: 1
 
-        // Karaoke: measured width for the filled prefix when segments exist.
-        property string _karaokeFillText: ""
+        // Karaoke: computed state for continuous fill when segments exist.
+        // - _karaokePrevText: fully-filled prefix text
+        // - _karaokeActiveText: current segment full text (for partial fill)
+        // - _karaokeActiveProgress: 0..1 progress within active segment
+        property string _karaokePrevText: ""
+        property string _karaokeActiveText: ""
+        property real _karaokeActiveProgress: 0
 
         function _clamp01(v) {
             return Math.max(0, Math.min(1, v));
+        }
+
+        function _metricWidth(tm) {
+            if (!tm) return 0;
+            const tr = tm.tightBoundingRect;
+            const br = tm.boundingRect;
+            const a = (tr && tr.width > 0) ? tr.width : 0;
+            const b = (br && br.width > 0) ? br.width : 0;
+            const c = (tm.width > 0) ? tm.width : 0;
+            return Math.max(a, b, c);
         }
 
         function _scrollProgressFromFill(fp) {
@@ -146,42 +150,55 @@ Item {
             flick.contentX = Math.round(line.maxScrollX * line._scrollProgressFromFill(line.fillProgress));
         }
 
-        function _updateKaraokeFillText() {
+        function _updateKaraokeState() {
             const segs = Array.isArray(line.segments) ? line.segments : [];
             if (!line.useFill || segs.length === 0) {
-                line._karaokeFillText = "";
+                line._karaokePrevText = "";
+                line._karaokeActiveText = "";
+                line._karaokeActiveProgress = 0;
                 return;
             }
 
             const t = line.playheadTimeMs;
-            let out = "";
+            let prev = "";
+            let activeText = "";
+            let activeP = 0;
             for (let i = 0; i < segs.length; i++) {
                 const s = segs[i];
                 const txt = (s && typeof s.text === "string") ? s.text : "";
-                const st = Number(s?.start ?? -1);
-                const en = Number(s?.end ?? -1);
+                const st = Number((s && s.start != null) ? s.start : -1);
+                const en = Number((s && s.end != null) ? s.end : -1);
                 if (!(st >= 0 && en > st)) {
                     // No timing: treat as not yet filled.
                     break;
                 }
 
                 if (t >= en) {
-                    out += txt;
+                    prev += txt;
                     continue;
                 }
 
                 if (t <= st) {
+                    activeText = txt;
+                    activeP = 0;
                     break;
                 }
 
-                const p = (t - st) / (en - st);
-                const clamped = Math.max(0, Math.min(1, p));
-                const n = Math.max(0, Math.min(txt.length, Math.round(txt.length * clamped)));
-                out += txt.slice(0, n);
+                // Within this segment: fill continuously by clipping width.
+                activeText = txt;
+                activeP = Math.max(0, Math.min(1, (t - st) / (en - st)));
+
+                // If this is the last segment, allow a tiny epsilon so we don't
+                // get stuck at 99% when the playhead stops updating a few ms early.
+                if (i === segs.length - 1 && (en - t) <= 45) {
+                    activeP = 1;
+                }
                 break;
             }
 
-            line._karaokeFillText = out;
+            line._karaokePrevText = prev;
+            line._karaokeActiveText = activeText;
+            line._karaokeActiveProgress = activeP;
         }
 
         function restartAnimations() {
@@ -215,8 +232,8 @@ Item {
             // If synced, set initial scroll position.
             line._updateScrollFromFill();
 
-            // Karaoke prefix.
-            line._updateKaraokeFillText();
+            // Karaoke state.
+            line._updateKaraokeState();
         }
 
         onTextChanged: Qt.callLater(line.restartAnimations)
@@ -229,7 +246,7 @@ Item {
             fillAnim.stop();
             line.fillProgress = line._clamp01(line.externalFillProgress);
             line._updateScrollFromFill();
-            line._updateKaraokeFillText();
+            line._updateKaraokeState();
         }
 
         onExternalScrollProgressChanged: {
@@ -239,8 +256,8 @@ Item {
         }
 
         onFillProgressChanged: line._updateScrollFromFill()
-        onPlayheadTimeMsChanged: line._updateKaraokeFillText()
-        onSegmentsChanged: line._updateKaraokeFillText()
+        onPlayheadTimeMsChanged: line._updateKaraokeState()
+        onSegmentsChanged: line._updateKaraokeState()
 
         NumberAnimation {
             id: fillAnim
@@ -290,10 +307,21 @@ Item {
                 width: flick.contentWidth
                 height: flick.height
 
-                // Measures the filled prefix width for karaoke segments.
+                // Measures the karaoke prefix and current segment widths for continuous fill.
                 TextMetrics {
-                    id: fillMetrics
-                    text: line._karaokeFillText
+                    id: karaokePrevMetrics
+                    text: line._karaokePrevText
+                    font {
+                        family: Appearance.font.family.main
+                        pixelSize: line.fontPixelSize
+                        hintingPreference: Font.PreferDefaultHinting
+                        variableAxes: Appearance.font.variableAxes.main
+                    }
+                }
+
+                TextMetrics {
+                    id: karaokePrevPlusMetrics
+                    text: line._karaokePrevText + line._karaokeActiveText
                     font {
                         family: Appearance.font.family.main
                         pixelSize: line.fontPixelSize
@@ -310,7 +338,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: line.centerText ? implicitWidth : (line.shouldScroll ? line.contentWidthWithSlack : flick.width)
                     wrapMode: Text.NoWrap
-                    elide: (line.shouldScroll || line.centerText) ? Text.ElideNone : Text.ElideRight
+                    elide: Text.ElideNone
                     horizontalAlignment: line.centerText ? Text.AlignHCenter : Text.AlignLeft
                     text: line.text
                     font.pixelSize: line.fontPixelSize
@@ -326,9 +354,12 @@ Item {
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     readonly property real fillBaseWidth: line.shouldScroll ? line.naturalWidth : flick.width
+                    readonly property bool hasKaraoke: Array.isArray(line.segments) && line.segments.length > 0
+                    readonly property real karaokePrevW: Math.ceil(line._metricWidth(karaokePrevMetrics))
+                    readonly property real karaokePrevPlusW: Math.ceil(line._metricWidth(karaokePrevPlusMetrics))
                     readonly property real targetWidth: line.useFill
-                        ? (Array.isArray(line.segments) && line.segments.length > 0
-                            ? Math.max(0, fillMetrics.tightBoundingRect.width)
+                        ? (fillOverlay.hasKaraoke
+                            ? (fillOverlay.karaokePrevW + (fillOverlay.karaokePrevPlusW - fillOverlay.karaokePrevW) * Math.max(0, Math.min(1, line._karaokeActiveProgress)))
                             : (fillBaseWidth * line.fillProgress))
                         : 0
                     width: targetWidth
@@ -338,7 +369,9 @@ Item {
                     // Duration adapts to API update interval for seamless transitions.
                     // On line transitions, use 3x faster animation to "catch up" quickly.
                     Behavior on width {
-                        enabled: line.useFill && line.externalFillProgress >= 0
+                        // Karaoke is already driven at ~60fps by QS-side playhead;
+                        // smoothing here would lag behind and can leave the tail slightly unfilled.
+                        enabled: line.useFill && line.externalFillProgress >= 0 && !fillOverlay.hasKaraoke
                         NumberAnimation {
                             duration: line.isTransition
                                 ? Math.max(10, Math.round(line.fillAnimDurationMs / 3))
@@ -352,7 +385,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: baseText.width
                         wrapMode: baseText.wrapMode
-                        elide: baseText.elide
+                        elide: Text.ElideNone
                         text: baseText.text
                         font.pixelSize: baseText.font.pixelSize
                         color: line.fillColor

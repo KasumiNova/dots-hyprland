@@ -118,9 +118,17 @@ function normalizeLines(payload) {
   const raw = hasYrcWords ? yrc : (lrc ?? yrc);
   if (!Array.isArray(raw)) return [];
 
-  const lines = raw
+  const normalized = raw
     .map(normalizeLine)
-    .filter(Boolean)
+    .filter(Boolean);
+
+  // By default, skip background (isBG) lines and empty lines.
+  // Background lines can start between two main lines and cause the UI to
+  // "jump to next" even though the next *main* line hasn't started.
+  const nonBg = normalized.filter(l => !l.isBG && String(l.main || '').trim().length > 0);
+  const nonEmpty = normalized.filter(l => String(l.main || '').trim().length > 0);
+
+  const lines = (nonBg.length > 0 ? nonBg : nonEmpty)
     .sort((a, b) => a.start - b.start);
 
   // If endTime is missing/invalid, infer it from next line.
@@ -151,8 +159,8 @@ function findLineIndex(lines, timeMs) {
   }
   if (best < 0) return -1;
 
-  // Ensure we are within [start, end)
-  if (timeMs >= lines[best].end) return -1;
+  // Select purely by start time; end is for progress only.
+  // This keeps the last line visible during gaps until the next line starts.
   return best;
 }
 

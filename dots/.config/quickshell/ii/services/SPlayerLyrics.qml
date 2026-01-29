@@ -70,7 +70,8 @@ Singleton {
         while (lo <= hi) {
             const mid = (lo + hi) >> 1;
             const item = lines[mid];
-            const s = Number((item && item.start != null) ? item.start : -1);
+            const sRaw = Number((item && item.start != null) ? item.start : NaN);
+            const s = isFinite(sRaw) ? sRaw : 1e18;
             if (s <= timeMs) {
                 best = mid;
                 lo = mid + 1;
@@ -78,10 +79,10 @@ Singleton {
                 hi = mid - 1;
             }
         }
-        if (best < 0) return -1;
-        const bestItem = lines[best];
-        const end = Number((bestItem && bestItem.end != null) ? bestItem.end : -1);
-        if (!(end > timeMs)) return -1;
+        // IMPORTANT:
+        // Select the last-started line purely by `start`.
+        // `end` is only used for progress calculation (fill), not for switching lines.
+        // This makes the lyric stay visible during gaps (line ended but next hasn't started).
         return best;
     }
 
@@ -187,8 +188,10 @@ Singleton {
 
             const age = now - (root._anchorAtMs || 0);
 
-            // If we haven't received progress recently (pause/stop), don't keep advancing.
-            const predicted = (age >= 0 && age < root._silenceSnapAfterMs)
+            // Always advance using the last known playback rate.
+            // A previous hard cutoff ("silence" > 3.5s) caused karaoke fills to freeze
+            // mid-word when the WS progress stream hiccups.
+            const predicted = (age >= 0)
                 ? (root._anchorTime + age * (root._playbackRate || 1.0))
                 : root._anchorTime;
 
