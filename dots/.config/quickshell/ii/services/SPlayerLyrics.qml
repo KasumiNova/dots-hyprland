@@ -71,7 +71,8 @@ Singleton {
         let best = -1;
         while (lo <= hi) {
             const mid = (lo + hi) >> 1;
-            const s = Number(lines[mid]?.start ?? -1);
+            const item = lines[mid];
+            const s = Number((item && item.start != null) ? item.start : -1);
             if (s <= timeMs) {
                 best = mid;
                 lo = mid + 1;
@@ -80,7 +81,8 @@ Singleton {
             }
         }
         if (best < 0) return -1;
-        const end = Number(lines[best]?.end ?? -1);
+        const bestItem = lines[best];
+        const end = Number((bestItem && bestItem.end != null) ? bestItem.end : -1);
         if (!(end > timeMs)) return -1;
         return best;
     }
@@ -103,7 +105,7 @@ Singleton {
             return;
         }
 
-        const line = root.timeline[idx] ?? ({});
+        const line = (Array.isArray(root.timeline) && root.timeline[idx] != null) ? root.timeline[idx] : ({});
         root.main = (line.main ?? "");
         root.translation = (line.translation ?? "");
         root.lineStart = Number(line.start ?? 0);
