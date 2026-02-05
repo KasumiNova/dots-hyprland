@@ -37,6 +37,10 @@ Singleton {
     property real _playbackRate: 1.0
     // Estimated interval between API updates (ms). Used to adapt animation duration.
     property int updateIntervalMs: 150
+    // Pause/playing inference.
+    property bool paused: false
+    property int _sameTimeStreak: 0
+    property real _lastProgressAtMs: 0
     // Current timeline index inferred from QS time.
     property int _currentIndex: -1
     property int lineStart: 0
@@ -55,6 +59,25 @@ Singleton {
     readonly property int _snapThresholdMs: 900
     readonly property int _seekThresholdMs: 2500
     readonly property int _silenceSnapAfterMs: 3500
+
+    function _setPaused(isPaused, nowMs) {
+        const v = !!isPaused;
+        if (v === root.paused) return;
+        root.paused = v;
+        if (root.paused) {
+            // Freeze playhead.
+            root._playbackRate = 0;
+            // Re-anchor to the last reported time if available.
+            if (root._reportedAtMs > 0) {
+                root._snapToReported(root._reportedTime, nowMs);
+            } else {
+                root._anchorAtMs = nowMs;
+            }
+        } else {
+            // Resume: ensure we can advance immediately.
+            if (!(root._playbackRate > 0)) root._playbackRate = 1.0;
+        }
+    }
 
     function _clamp(v, lo, hi) {
         return Math.max(lo, Math.min(hi, v));
@@ -188,10 +211,14 @@ Singleton {
 
             const age = now - (root._anchorAtMs || 0);
 
-            // Always advance using the last known playback rate.
-            // A previous hard cutoff ("silence" > 3.5s) caused karaoke fills to freeze
-            // mid-word when the WS progress stream hiccups.
-            const predicted = (age >= 0)
+            const stalled = (root._lastProgressAtMs > 0)
+                ? ((now - root._lastProgressAtMs) > root._silenceSnapAfterMs)
+                : false;
+
+            // If the progress stream stalls, keep animating unless we believe playback is paused.
+            // This prevents mid-line freezes on WS hiccups, while still stopping on pause.
+            const shouldFreeze = stalled && root.paused;
+            const predicted = (!shouldFreeze && age >= 0)
                 ? (root._anchorTime + age * (root._playbackRate || 1.0))
                 : root._anchorTime;
 
@@ -282,6 +309,18 @@ Singleton {
                     root.timeline = newLines;
                     // Force re-apply current index on next tick.
                     root._currentIndex = -2;
+
+                    // If the new song has no lyrics (instrumental / missing), clear UI state.
+                    if (newLines.length === 0) {
+                        root._currentIndex = -1;
+                        root.main = "";
+                        root.translation = "";
+                        root.lineStart = 0;
+                        root.lineEnd = 0;
+                        root.lineDuration = 0;
+                        root.lineProgress = -1;
+                        root.segments = [];
+                    }
                 } else if (msg.type === "lyrics") {
                     // Backward-compatible: if timeline is unavailable, fall back.
                     if (!Array.isArray(root.timeline) || root.timeline.length === 0) {
@@ -296,6 +335,8 @@ Singleton {
                     const newRaw = Number(msg.time ?? root._reportedTime);
                     const now = Date.now();
 
+                    root._lastProgressAtMs = now;
+
                     // Update playback rate estimate.
                     const prevT = root._reportedTime;
                     const prevAt = root._reportedAtMs;
@@ -304,12 +345,30 @@ Singleton {
                     if (dms > 30 && dms < 2000 && Number.isFinite(dt)) {
                         // Track update interval for adaptive animation.
                         root.updateIntervalMs = Math.round(dms);
-                        // Rate estimate; dt can be 0 during pause.
-                        if (dt >= 0) {
+
+                        // Pause inference: consecutive identical timestamps.
+                        if (dt === 0) {
+                            root._sameTimeStreak = (root._sameTimeStreak || 0) + 1;
+                            if (root._sameTimeStreak >= 3) {
+                                root._setPaused(true, now);
+                            }
+                        } else {
+                            root._sameTimeStreak = 0;
+                            // Any forward movement implies playing.
+                            if (dt > 0) root._setPaused(false, now);
+                        }
+
+                        // Rate estimate; only update when playing.
+                        if (!root.paused && dt >= 0) {
                             const r = dt / dms;
                             const clamped = root._clamp(r, 0, 1.25);
-                            // Light smoothing to avoid jitter.
-                            root._playbackRate = root._clamp(root._playbackRate * 0.8 + clamped * 0.2, 0, 1.25);
+                            // If we were near-zero (e.g. just resumed), jump closer to real speed.
+                            if (root._playbackRate < 0.4) {
+                                root._playbackRate = clamped;
+                            } else {
+                                // Light smoothing to avoid jitter.
+                                root._playbackRate = root._clamp(root._playbackRate * 0.8 + clamped * 0.2, 0, 1.25);
+                            }
                         }
                     }
 
@@ -318,6 +377,11 @@ Singleton {
                     const anchorAge = now - (root._anchorAtMs || 0);
                     const isSilence = anchorAge > root._silenceSnapAfterMs;
                     const isSeekJump = Math.abs(dt) > root._seekThresholdMs;
+
+                    if (seeked || isSeekJump) {
+                        root._sameTimeStreak = 0;
+                        root._setPaused(false, now);
+                    }
 
                     if (noAnchorYet || isSilence || seeked || isSeekJump) {
                         root._snapToReported(newRaw, now);
@@ -331,6 +395,31 @@ Singleton {
                         } else {
                             root._softCorrectToReported(newRaw, now);
                         }
+                    }
+                } else if (msg.type === "player") {
+                    // Best-effort pause detection from status-change payload.
+                    const d = msg.data;
+                    let paused = null;
+                    if (d && typeof d === "object") {
+                        if (typeof d.paused === "boolean") {
+                            paused = d.paused;
+                        } else if (typeof d.playing === "boolean") {
+                            paused = !d.playing;
+                        } else if (typeof d.isPlaying === "boolean") {
+                            paused = !d.isPlaying;
+                        } else if (typeof d.state === "string") {
+                            const s = d.state.toLowerCase();
+                            if (s.indexOf("pause") >= 0 || s.indexOf("stop") >= 0) paused = true;
+                            if (s.indexOf("play") >= 0) paused = false;
+                        } else if (typeof d.status === "string") {
+                            const s2 = d.status.toLowerCase();
+                            if (s2.indexOf("pause") >= 0 || s2.indexOf("stop") >= 0) paused = true;
+                            if (s2.indexOf("play") >= 0) paused = false;
+                        }
+                    }
+                    if (paused !== null) {
+                        root._sameTimeStreak = 0;
+                        root._setPaused(paused, Date.now());
                     }
                 }
             }

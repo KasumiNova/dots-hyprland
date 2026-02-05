@@ -237,13 +237,25 @@ let lastProgressEmitAt = 0;
 let lastSongKey = '';
 
 function emitTimeline(source) {
-  if (!Array.isArray(lines) || lines.length === 0) return;
+  // Backward compat: emitTimeline(source) behaves as before (skip empties).
+  emitTimelineForced(source, false);
+}
+
+function emitTimelineForced(source, force) {
+  if (!Array.isArray(lines)) return;
+  if (!force && lines.length === 0) return;
   emit({
     type: 'timeline',
     source: source || 'unknown',
     songKey: lastSongKey,
     lines,
   });
+}
+
+function extractSongKey(data) {
+  if (!data || typeof data !== 'object') return '';
+  const v = (data.songId ?? data.musicId ?? data.id ?? data.hash ?? data.trackId ?? data.audioId);
+  return (v != null) ? String(v) : '';
 }
 
 function resetLyricsState(keepLines = false) {
@@ -338,12 +350,25 @@ function connect() {
 
     switch (msg.type) {
       case 'song-change': {
-        // Don't wipe lines here - they may still be valid for single-loop mode.
-        // Just reset index tracking so we re-emit on next progress tick.
-        // If it's truly a different song, lyric-change will follow and replace lines.
-        resetLyricsState(true);  // keepLines=true
-        // Don't clear lastSongKey; let lyric-change update it if song actually changed.
-        // Emit empty to clear UI momentarily; next progress-change will restore if lines exist.
+        // Clear stale lyrics/timeline on track changes so instrumental/no-lyrics tracks
+        // don't keep displaying the previous song.
+        const nextSongKey = extractSongKey(msg.data);
+        const isSameSong = (nextSongKey && lastSongKey && nextSongKey === lastSongKey);
+
+        if (!isSameSong) {
+          // New track (or unknown): clear timeline.
+          lastSongKey = nextSongKey || '';
+          resetLyricsState(false);
+          lines = [];
+          saveCache({ lines: [], songKey: lastSongKey });
+          emitTimelineForced('song-change', true);
+        } else {
+          // Likely single-loop: keep existing timeline.
+          resetLyricsState(true);
+          emitTimelineForced('song-change', true);
+        }
+
+        // Emit empty to clear UI momentarily; next progress-change/lyric-change will restore.
         emit({ type: 'lyrics', main: '', translation: '', time: 0, lineStart: 0, lineEnd: 0, lineDuration: 0, lineProgress: -1, segments: [], isTransition: true });
         break;
       }
@@ -356,8 +381,8 @@ function connect() {
           (msg?.data && (msg.data.songId ?? msg.data.musicId ?? msg.data.id ?? msg.data.hash)) ?? '';
         lastSongKey = (songKey != null) ? String(songKey) : '';
         saveCache({ lines: newLines, songKey: lastSongKey });
-        // Emit full timeline for QS-side animation.
-        emitTimeline('api');
+        // Emit full timeline for QS-side animation (even if empty, to clear UI).
+        emitTimelineForced('api', true);
         // Force re-emit on next progress tick
         lastIdx = -2;
         break;
@@ -446,7 +471,8 @@ function connect() {
       }
 
       case 'status-change':
-        // Currently unused, but we keep the hook for future.
+        // Forward the payload so QS can infer paused/playing when progress ticks stop.
+        emit({ type: 'player', data: (msg.data ?? null) });
         break;
 
       default:

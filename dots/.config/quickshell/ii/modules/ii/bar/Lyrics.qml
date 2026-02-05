@@ -114,9 +114,11 @@ Item {
         // - _karaokePrevText: fully-filled prefix text
         // - _karaokeActiveText: current segment full text (for partial fill)
         // - _karaokeActiveProgress: 0..1 progress within active segment
+        // - _karaokeUsable: false when timing data is malformed (fallback to lineProgress fill)
         property string _karaokePrevText: ""
         property string _karaokeActiveText: ""
         property real _karaokeActiveProgress: 0
+        property bool _karaokeUsable: false
 
         function _clamp01(v) {
             return Math.max(0, Math.min(1, v));
@@ -156,8 +158,33 @@ Item {
                 line._karaokePrevText = "";
                 line._karaokeActiveText = "";
                 line._karaokeActiveProgress = 0;
+                line._karaokeUsable = false;
                 return;
             }
+
+            // Validate timing data. If malformed, fall back to lineProgress fill.
+            let lastEnd = -1;
+            for (let j = 0; j < segs.length; j++) {
+                const ss = segs[j];
+                const stt = Number((ss && ss.start != null) ? ss.start : -1);
+                const enn = Number((ss && ss.end != null) ? ss.end : -1);
+                if (!(stt >= 0 && enn > stt)) {
+                    line._karaokePrevText = "";
+                    line._karaokeActiveText = "";
+                    line._karaokeActiveProgress = 0;
+                    line._karaokeUsable = false;
+                    return;
+                }
+                if (lastEnd >= 0 && stt < (lastEnd - 5)) {
+                    line._karaokePrevText = "";
+                    line._karaokeActiveText = "";
+                    line._karaokeActiveProgress = 0;
+                    line._karaokeUsable = false;
+                    return;
+                }
+                lastEnd = enn;
+            }
+            line._karaokeUsable = true;
 
             const t = line.playheadTimeMs;
             let prev = "";
@@ -354,7 +381,7 @@ Item {
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     readonly property real fillBaseWidth: line.shouldScroll ? line.naturalWidth : flick.width
-                    readonly property bool hasKaraoke: Array.isArray(line.segments) && line.segments.length > 0
+                    readonly property bool hasKaraoke: !!line._karaokeUsable
                     readonly property real karaokePrevW: Math.ceil(line._metricWidth(karaokePrevMetrics))
                     readonly property real karaokePrevPlusW: Math.ceil(line._metricWidth(karaokePrevPlusMetrics))
                     readonly property real targetWidth: line.useFill
