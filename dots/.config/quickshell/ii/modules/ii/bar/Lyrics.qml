@@ -154,8 +154,6 @@ Item {
 
         function _updateKaraokeState() {
             const segs = Array.isArray(line.segments) ? line.segments : [];
-            const lp = Number(line.externalFillProgress ?? -1);
-
             if (!line.useFill || segs.length === 0) {
                 line._karaokePrevText = "";
                 line._karaokeActiveText = "";
@@ -164,26 +162,11 @@ Item {
                 return;
             }
 
-            // SIMPLE PATH: when there's only ONE segment covering the whole line,
-            // use lineProgress directly instead of segment timing. This avoids the
-            // "last glyph stuck" issue caused by timing misalignment at line boundaries.
-            if (segs.length === 1) {
-                const s = segs[0];
-                const txt = (s && typeof s.text === "string") ? s.text : "";
-                if (txt.length > 0 && lp >= 0) {
-                    // Use lineProgress (already clamped 0-1 by SPlayerLyrics) as fill progress.
-                    // This is more reliable than segment-based timing for whole-line segments.
-                    line._karaokePrevText = "";
-                    line._karaokeActiveText = txt;
-                    line._karaokeActiveProgress = lp;
-                    line._karaokeUsable = true;
-                    return;
-                }
-            }
-
-            // FORCED COMPLETION: If the line is basically done, force full fill.
-            // Use a lower threshold (0.95) to catch edge cases where timing is tight.
-            if (lp >= 0.95) {
+            // If the line is basically complete, force a full fill.
+            // This avoids the common "last glyph stuck at ~60-90%" issue when the
+            // last segment timing doesn't perfectly align with the line end.
+            const lp = Number(line.externalFillProgress ?? -1);
+            if (lp >= 0 && lp >= 0.985) {
                 line._karaokePrevText = line.text;
                 line._karaokeActiveText = "";
                 line._karaokeActiveProgress = 0;
@@ -191,7 +174,7 @@ Item {
                 return;
             }
 
-            // MULTI-SEGMENT PATH: validate timing data.
+            // Validate timing data. If malformed, fall back to lineProgress fill.
             let lastEnd = -1;
             let hasAnyText = false;
             for (let j = 0; j < segs.length; j++) {
@@ -235,6 +218,7 @@ Item {
                 const st = Number((s && s.start != null) ? s.start : -1);
                 const en = Number((s && s.end != null) ? s.end : -1);
                 if (!(st >= 0 && en > st)) {
+                    // No timing: treat as not yet filled.
                     break;
                 }
 
@@ -249,16 +233,14 @@ Item {
                     break;
                 }
 
-                // Within this segment: fill continuously.
+                // Within this segment: fill continuously by clipping width.
                 activeText = txt;
                 activeP = Math.max(0, Math.min(1, (t - st) / (en - st)));
 
-                // LAST SEGMENT SAFETY: if we're in the final segment and close to the end,
-                // or if lineProgress indicates we're nearly done, force completion.
-                if (i === segs.length - 1) {
-                    if ((en - t) <= 80 || activeP >= 0.92) {
-                        activeP = 1;
-                    }
+                // If this is the last segment, allow a tiny epsilon so we don't
+                // get stuck at 99% when the playhead stops updating a few ms early.
+                if (i === segs.length - 1 && (en - t) <= 45) {
+                    activeP = 1;
                 }
                 break;
             }
@@ -424,10 +406,15 @@ Item {
                     readonly property bool hasKaraoke: !!line._karaokeUsable
                     readonly property real karaokePrevW: Math.ceil(line._metricWidth(karaokePrevMetrics))
                     readonly property real karaokePrevPlusW: Math.ceil(line._metricWidth(karaokePrevPlusMetrics))
+                    // Karaoke fill width from segment timing.
+                    readonly property real karaokeRawWidth: fillOverlay.karaokePrevW + (fillOverlay.karaokePrevPlusW - fillOverlay.karaokePrevW) * Math.max(0, Math.min(1, line._karaokeActiveProgress))
+                    // Use lineProgress as a fallback floor: ensures fill never lags behind overall line timing.
+                    // This is the key fix for "last glyph stuck" when segment timing doesn't align perfectly.
+                    readonly property real lineProgressWidth: fillBaseWidth * Math.max(0, Math.min(1, line.fillProgress))
                     readonly property real targetWidth: line.useFill
                         ? (fillOverlay.hasKaraoke
-                            ? (fillOverlay.karaokePrevW + (fillOverlay.karaokePrevPlusW - fillOverlay.karaokePrevW) * Math.max(0, Math.min(1, line._karaokeActiveProgress)))
-                            : (fillBaseWidth * line.fillProgress))
+                            ? Math.max(fillOverlay.karaokeRawWidth, fillOverlay.lineProgressWidth)
+                            : fillOverlay.lineProgressWidth)
                         : 0
                     width: targetWidth
                     clip: true
