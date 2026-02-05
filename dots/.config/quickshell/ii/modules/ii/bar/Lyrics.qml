@@ -162,6 +162,18 @@ Item {
                 return;
             }
 
+            // If the line is basically complete, force a full fill.
+            // This avoids the common "last glyph stuck at ~60-90%" issue when the
+            // last segment timing doesn't perfectly align with the line end.
+            const lp = Number(line.externalFillProgress ?? -1);
+            if (lp >= 0 && lp >= 0.985) {
+                line._karaokePrevText = line.text;
+                line._karaokeActiveText = "";
+                line._karaokeActiveProgress = 0;
+                line._karaokeUsable = true;
+                return;
+            }
+
             // Validate timing data. If malformed, fall back to lineProgress fill.
             let lastEnd = -1;
             let hasAnyText = false;

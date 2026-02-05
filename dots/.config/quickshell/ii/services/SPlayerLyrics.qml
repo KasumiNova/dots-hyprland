@@ -41,6 +41,7 @@ Singleton {
     property bool paused: false
     property int _sameTimeStreak: 0
     property real _lastProgressAtMs: 0
+    property real _lastMovingAtMs: 0
     // Current timeline index inferred from QS time.
     property int _currentIndex: -1
     property int lineStart: 0
@@ -344,16 +345,18 @@ Singleton {
                         // Track update interval for adaptive animation.
                         root.updateIntervalMs = Math.round(dms);
 
-                        // Pause inference: consecutive identical timestamps.
-                        if (dt === 0) {
+                        // Pause inference: only consider "paused" if time hasn't advanced
+                        // for a noticeable duration. Some players emit coarse timestamps.
+                        if (dt > 0) {
+                            root._lastMovingAtMs = now;
+                            root._sameTimeStreak = 0;
+                            root._setPaused(false, now);
+                        } else if (dt === 0) {
                             root._sameTimeStreak = (root._sameTimeStreak || 0) + 1;
-                            if (root._sameTimeStreak >= 3) {
+                            const lastMove = (root._lastMovingAtMs > 0) ? root._lastMovingAtMs : (root._reportedAtMs || now);
+                            if (root._sameTimeStreak >= 3 && (now - lastMove) > 1200) {
                                 root._setPaused(true, now);
                             }
-                        } else {
-                            root._sameTimeStreak = 0;
-                            // Any forward movement implies playing.
-                            if (dt > 0) root._setPaused(false, now);
                         }
 
                         // Rate estimate; only update when playing.
