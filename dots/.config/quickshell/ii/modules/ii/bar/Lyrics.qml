@@ -164,8 +164,11 @@ Item {
 
             // Validate timing data. If malformed, fall back to lineProgress fill.
             let lastEnd = -1;
+            let hasAnyText = false;
             for (let j = 0; j < segs.length; j++) {
                 const ss = segs[j];
+                const tx = String((ss && ss.text != null) ? ss.text : "");
+                if (tx.trim().length > 0) hasAnyText = true;
                 const stt = Number((ss && ss.start != null) ? ss.start : -1);
                 const enn = Number((ss && ss.end != null) ? ss.end : -1);
                 if (!(stt >= 0 && enn > stt)) {
@@ -183,6 +186,13 @@ Item {
                     return;
                 }
                 lastEnd = enn;
+            }
+            if (!hasAnyText) {
+                line._karaokePrevText = "";
+                line._karaokeActiveText = "";
+                line._karaokeActiveProgress = 0;
+                line._karaokeUsable = false;
+                return;
             }
             line._karaokeUsable = true;
 

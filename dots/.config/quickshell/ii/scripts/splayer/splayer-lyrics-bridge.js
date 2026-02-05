@@ -73,7 +73,12 @@ function normalizeLine(line) {
     segments = line.words
       .map(w => {
         if (!w || typeof w !== 'object') return null;
-        const text = (typeof w.word === 'string') ? w.word : '';
+        let text = (typeof w.word === 'string') ? w.word : '';
+        if (!text || !String(text).trim()) {
+          // Some payloads omit `word` but provide `romanWord`.
+          const rw = (typeof w.romanWord === 'string') ? w.romanWord : '';
+          if (rw && String(rw).trim()) text = rw;
+        }
         let s = toNumber(w.startTime, -1);
         let e = toNumber(w.endTime, -1);
 
@@ -87,13 +92,29 @@ function normalizeLine(line) {
       })
       .filter(Boolean);
     main = segments.map(w => w.text).join('');
+
+    // Some payloads provide timings but omit actual word text.
+    // In that case, drop segments so the UI falls back to line-level progress.
+    if (!segments.some(seg => String(seg.text || '').trim().length > 0)) {
+      segments = [];
+    }
   } else if (typeof line.lyric === 'string') {
     main = line.lyric;
   } else if (typeof line.text === 'string') {
     main = line.text;
   }
 
+  // Fallback: some payloads only provide romanLyric.
+  if (!String(main || '').trim() && typeof line.romanLyric === 'string') {
+    main = line.romanLyric;
+  }
+
   const translation = (typeof line.translatedLyric === 'string') ? line.translatedLyric : '';
+
+  // If we only have translation, promote it to main so the UI doesn't show "waiting".
+  if (!String(main || '').trim() && String(translation || '').trim()) {
+    main = translation;
+  }
 
   return {
     start,
@@ -120,13 +141,18 @@ function normalizeLines(payload) {
 
   const normalized = raw
     .map(normalizeLine)
-    .filter(Boolean);
+    .filter(l => {
+      if (!l) return false;
+      const m = String(l.main || '').trim();
+      const tr = String(l.translation || '').trim();
+      return m.length > 0 || tr.length > 0;
+    });
 
   // By default, skip background (isBG) lines and empty lines.
   // Background lines can start between two main lines and cause the UI to
   // "jump to next" even though the next *main* line hasn't started.
-  const nonBg = normalized.filter(l => !l.isBG && String(l.main || '').trim().length > 0);
-  const nonEmpty = normalized.filter(l => String(l.main || '').trim().length > 0);
+  const nonBg = normalized.filter(l => !l.isBG);
+  const nonEmpty = normalized;
 
   const lines = (nonBg.length > 0 ? nonBg : nonEmpty)
     .sort((a, b) => a.start - b.start);
@@ -350,26 +376,25 @@ function connect() {
 
     switch (msg.type) {
       case 'song-change': {
-        // Clear stale lyrics/timeline on track changes so instrumental/no-lyrics tracks
-        // don't keep displaying the previous song.
+        // Track changes are not always accompanied by a reliable ID in msg.data.
+        // If we clear timeline on an "unknown" song-change, the UI can get stuck
+        // on the waiting placeholder ("· · ·") until a lyric-change arrives.
+        // Therefore: only clear when we have a non-empty key AND it differs.
         const nextSongKey = extractSongKey(msg.data);
-        const isSameSong = (nextSongKey && lastSongKey && nextSongKey === lastSongKey);
+        const shouldClear = (nextSongKey && lastSongKey && nextSongKey !== lastSongKey);
 
-        if (!isSameSong) {
-          // New track (or unknown): clear timeline.
-          lastSongKey = nextSongKey || '';
+        if (shouldClear) {
+          lastSongKey = nextSongKey;
           resetLyricsState(false);
           lines = [];
           saveCache({ lines: [], songKey: lastSongKey });
           emitTimelineForced('song-change', true);
+          emit({ type: 'lyrics', main: '', translation: '', time: 0, lineStart: 0, lineEnd: 0, lineDuration: 0, lineProgress: -1, segments: [], isTransition: true });
         } else {
-          // Likely single-loop: keep existing timeline.
+          // Unknown/loop: keep what we have; lyric-change will update if needed.
           resetLyricsState(true);
-          emitTimelineForced('song-change', true);
+          if (nextSongKey && !lastSongKey) lastSongKey = nextSongKey;
         }
-
-        // Emit empty to clear UI momentarily; next progress-change/lyric-change will restore.
-        emit({ type: 'lyrics', main: '', translation: '', time: 0, lineStart: 0, lineEnd: 0, lineDuration: 0, lineProgress: -1, segments: [], isTransition: true });
         break;
       }
 

@@ -276,8 +276,6 @@ Singleton {
             `${Directories.scriptPath}/splayer/splayer-lyrics-bridge.js`,
             "--url",
             root.wsUrl,
-            "--cache",
-            `${FileUtils.trimFileProtocol(Directories.cache)}/quickshell/splayer-lyrics-cache.json`,
         ]
 
         stdout: SplitParser {
@@ -407,6 +405,9 @@ Singleton {
                             paused = !d.playing;
                         } else if (typeof d.isPlaying === "boolean") {
                             paused = !d.isPlaying;
+                        } else if (typeof d.status === "boolean") {
+                            // Observed from SPlayer: {status: true/false}
+                            paused = !d.status;
                         } else if (typeof d.state === "string") {
                             const s = d.state.toLowerCase();
                             if (s.indexOf("pause") >= 0 || s.indexOf("stop") >= 0) paused = true;
