@@ -29,14 +29,6 @@ Singleton {
     // Last raw time reported by API (without offsetMs).
     property int _reportedTime: 0
     property real _reportedAtMs: 0
-    // Anchor used for QS-side free-running clock.
-    // Predicted time = _anchorTime + (now - _anchorAtMs) * _playbackRate
-    property int _anchorTime: 0
-    property real _anchorAtMs: 0
-    // Estimated playback rate (ms/ms). 1.0 ~= normal playback.
-    property real _playbackRate: 1.0
-    // Estimated interval between API updates (ms). Used to adapt animation duration.
-    property int updateIntervalMs: 150
     // Pause/playing inference.
     property bool paused: false
     property int _sameTimeStreak: 0
@@ -56,27 +48,18 @@ Singleton {
     property bool isTransition: false
     property string lastError: ""
 
-    // Drift control: only hard-snap when the API time diverges a lot.
-    readonly property int _snapThresholdMs: 900
-    readonly property int _seekThresholdMs: 2500
-    readonly property int _silenceSnapAfterMs: 3500
+    // If predicted time diverges from a new report by more than this, treat it as a seek.
+    readonly property int _seekThreshold: 2000
+    // If no progress arrives for this long, stop advancing the predicted time.
+    readonly property int _stallTimeoutMs: 3000
 
     function _setPaused(isPaused, nowMs) {
         const v = !!isPaused;
         if (v === root.paused) return;
         root.paused = v;
-        if (root.paused) {
-            // Freeze playhead.
-            root._playbackRate = 0;
-            // Re-anchor to the last reported time if available.
-            if (root._reportedAtMs > 0) {
-                root._snapToReported(root._reportedTime, nowMs);
-            } else {
-                root._anchorAtMs = nowMs;
-            }
-        } else {
-            // Resume: ensure we can advance immediately.
-            if (!(root._playbackRate > 0)) root._playbackRate = 1.0;
+        if (root.paused && root._reportedAtMs > 0) {
+            // Freeze: snap to last known position.
+            root.time = Math.round(root._reportedTime + root.offsetMs);
         }
     }
 
@@ -137,35 +120,6 @@ Singleton {
         root.segments = (Array.isArray(line.segments) ? line.segments : []);
     }
 
-    function _snapToReported(rawTimeMs, nowMs) {
-        // Store raw for debug/telemetry.
-        root._reportedTime = rawTimeMs;
-        root._reportedAtMs = nowMs;
-
-        // Anchor includes offsetMs so the entire UI shifts consistently.
-        root._anchorTime = rawTimeMs + root.offsetMs;
-        root._anchorAtMs = nowMs;
-    }
-
-    function _softCorrectToReported(rawTimeMs, nowMs) {
-        // Always keep last raw sample.
-        root._reportedTime = rawTimeMs;
-        root._reportedAtMs = nowMs;
-
-        const reported = rawTimeMs + root.offsetMs;
-        const age = nowMs - (root._anchorAtMs || 0);
-        const predicted = (age >= 0)
-            ? (root._anchorTime + age * (root._playbackRate || 1.0))
-            : root._anchorTime;
-        const drift = reported - predicted;
-
-        // Nudge the clock a bit toward the reported time to prevent slow drift,
-        // without visible snapping. Re-anchor at now to keep the timer stable.
-        const correctedNow = predicted + drift * 0.25;
-        root._anchorTime = Math.round(correctedNow);
-        root._anchorAtMs = nowMs;
-    }
-
     function clearLyrics() {
         root.main = "";
         root.translation = "";
@@ -173,8 +127,6 @@ Singleton {
         root.time = 0;
         root._reportedTime = 0;
         root._reportedAtMs = 0;
-        root._anchorTime = 0;
-        root._anchorAtMs = 0;
         root._currentIndex = -1;
         root.lineStart = 0;
         root.lineEnd = 0;
@@ -210,20 +162,21 @@ Singleton {
         onTriggered: {
             const now = Date.now();
 
-            const age = now - (root._anchorAtMs || 0);
-
-            const stalled = (root._lastProgressAtMs > 0)
-                ? ((now - root._lastProgressAtMs) > root._silenceSnapAfterMs)
-                : false;
-
-            // If the progress stream stalls, keep animating unless we believe playback is paused.
-            // This prevents mid-line freezes on WS hiccups, while still stopping on pause.
-            const shouldFreeze = stalled && root.paused;
-            const predicted = (!shouldFreeze && age >= 0)
-                ? (root._anchorTime + age * (root._playbackRate || 1.0))
-                : root._anchorTime;
-
-            root.time = Math.round(predicted);
+            if (root.paused || !(root._reportedAtMs > 0)) {
+                // Frozen or no data yet: hold at last reported position.
+                root.time = Math.round(root._reportedTime + root.offsetMs);
+            } else {
+                const elapsed = now - root._reportedAtMs;
+                // Stall guard: if no progress tick for too long, stop advancing.
+                const stalled = (root._lastProgressAtMs > 0)
+                    && ((now - root._lastProgressAtMs) > root._stallTimeoutMs);
+                if (stalled) {
+                    root.time = Math.round(root._reportedTime + root.offsetMs);
+                } else {
+                    // Simple linear extrapolation at 1× speed.
+                    root.time = Math.round(root._reportedTime + root.offsetMs + elapsed);
+                }
+            }
 
             // Drive current line from the full timeline.
             const idx = root._findTimelineIndex(root.timeline, root.time);
@@ -298,9 +251,9 @@ Singleton {
                     root.connected = !!msg.connected;
                     if (msg.error) root.lastError = `${msg.error}`;
                     if (!root.connected) {
-                        // Keep timeline cached in memory, but stop animation.
-                        root._anchorAtMs = 0;
-                        root.time = root._anchorTime;
+                        // Keep timeline cached in memory, but stop advancing.
+                        root._reportedAtMs = 0;
+                        root.time = Math.round(root._reportedTime + root.offsetMs);
                     }
                 } else if (msg.type === "timeline") {
                     // Full timeline update from SPlayer API (or cache).
@@ -331,72 +284,42 @@ Singleton {
                         root.segments = (Array.isArray(msg.segments) ? msg.segments : []);
                     }
                 } else if (msg.type === "progress") {
-                    const newRaw = Number(msg.time ?? root._reportedTime);
+                    const newRaw = Number(msg.time ?? 0);
                     const now = Date.now();
 
                     root._lastProgressAtMs = now;
 
-                    // Update playback rate estimate.
+                    // --- Pause inference ---
                     const prevT = root._reportedTime;
-                    const prevAt = root._reportedAtMs;
-                    const dms = now - (prevAt || 0);
-                    const dt = newRaw - (prevT || 0);
-                    if (dms > 30 && dms < 2000 && Number.isFinite(dt)) {
-                        // Track update interval for adaptive animation.
-                        root.updateIntervalMs = Math.round(dms);
+                    const dt = newRaw - prevT;
 
-                        // Pause inference: only consider "paused" if time hasn't advanced
-                        // for a noticeable duration. Some players emit coarse timestamps.
-                        if (dt > 0) {
-                            root._lastMovingAtMs = now;
-                            root._sameTimeStreak = 0;
-                            root._setPaused(false, now);
-                        } else if (dt === 0) {
-                            root._sameTimeStreak = (root._sameTimeStreak || 0) + 1;
-                            const lastMove = (root._lastMovingAtMs > 0) ? root._lastMovingAtMs : (root._reportedAtMs || now);
-                            if (root._sameTimeStreak >= 3 && (now - lastMove) > 1200) {
-                                root._setPaused(true, now);
-                            }
-                        }
-
-                        // Rate estimate; only update when playing.
-                        if (!root.paused && dt >= 0) {
-                            const r = dt / dms;
-                            const clamped = root._clamp(r, 0, 1.25);
-                            // If we were near-zero (e.g. just resumed), jump closer to real speed.
-                            if (root._playbackRate < 0.4) {
-                                root._playbackRate = clamped;
-                            } else {
-                                // Light smoothing to avoid jitter.
-                                root._playbackRate = root._clamp(root._playbackRate * 0.8 + clamped * 0.2, 0, 1.25);
-                            }
+                    if (dt > 0) {
+                        root._lastMovingAtMs = now;
+                        root._sameTimeStreak = 0;
+                        root._setPaused(false, now);
+                    } else if (dt === 0) {
+                        root._sameTimeStreak = (root._sameTimeStreak || 0) + 1;
+                        const lastMove = (root._lastMovingAtMs > 0) ? root._lastMovingAtMs : now;
+                        if (root._sameTimeStreak >= 3 && (now - lastMove) > 1200) {
+                            root._setPaused(true, now);
                         }
                     }
 
+                    // --- Seek detection ---
                     const seeked = !!msg.seeked;
-                    const noAnchorYet = !(root._anchorAtMs > 0);
-                    const anchorAge = now - (root._anchorAtMs || 0);
-                    const isSilence = anchorAge > root._silenceSnapAfterMs;
-                    const isSeekJump = Math.abs(dt) > root._seekThresholdMs;
-
-                    if (seeked || isSeekJump) {
+                    if (seeked || dt < -2000 || dt > 5000) {
                         root._sameTimeStreak = 0;
                         root._setPaused(false, now);
                     }
 
-                    if (noAnchorYet || isSilence || seeked || isSeekJump) {
-                        root._snapToReported(newRaw, now);
-                    } else {
-                        // Decide whether to snap or gently correct.
-                        const predictedNow = root._anchorTime + (now - root._anchorAtMs) * (root._playbackRate || 1.0);
-                        const reportedNow = newRaw + root.offsetMs;
-                        const drift = reportedNow - predictedNow;
-                        if (Math.abs(drift) > root._snapThresholdMs) {
-                            root._snapToReported(newRaw, now);
-                        } else {
-                            root._softCorrectToReported(newRaw, now);
-                        }
-                    }
+                    // Always re-anchor to the freshest reported time.
+                    // Between ticks the playhead timer linearly extrapolates at 1× speed.
+                    root._reportedTime = newRaw;
+                    // Use bridge-side timestamp if available — this cancels variable
+                    // IPC latency (Node stdout → QML SplitParser) that caused random
+                    // early/late karaoke fill jitter.
+                    const bridgeTs = Number(msg.ts ?? 0);
+                    root._reportedAtMs = (bridgeTs > 0) ? bridgeTs : now;
                 } else if (msg.type === "player") {
                     // Best-effort pause detection from status-change payload.
                     const d = msg.data;

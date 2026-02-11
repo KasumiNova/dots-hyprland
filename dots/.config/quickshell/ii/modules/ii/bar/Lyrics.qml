@@ -66,10 +66,6 @@ Item {
         // - externalScrollProgress: 0..1, when >= 0, directly drives scroll position (for translation sync).
         property real externalScrollProgress: -1
         property int dwellMs: 0
-        // Adaptive animation duration based on API update interval.
-        property int fillAnimDurationMs: 150
-        // When true, use faster initial animation (for line transitions).
-        property bool isTransition: false
 
         // When true, the marquee position is driven by fillProgress instead of an independent loop.
         // This makes long lyrics "reveal" and scroll in sync with the line timing.
@@ -245,6 +241,12 @@ Item {
                 break;
             }
 
+            // If all segments are complete, ensure fill covers the full line text
+            // (handles cases where segment texts don't perfectly match line.text).
+            if (activeText.length === 0 && prev.length > 0) {
+                prev = line.text;
+            }
+
             line._karaokePrevText = prev;
             line._karaokeActiveText = activeText;
             line._karaokeActiveProgress = activeP;
@@ -413,26 +415,11 @@ Item {
                     readonly property real lineProgressWidth: fillBaseWidth * Math.max(0, Math.min(1, line.fillProgress))
                     readonly property real targetWidth: line.useFill
                         ? (fillOverlay.hasKaraoke
-                            ? Math.max(fillOverlay.karaokeRawWidth, fillOverlay.lineProgressWidth)
+                            ? fillOverlay.karaokeRawWidth
                             : fillOverlay.lineProgressWidth)
                         : 0
                     width: targetWidth
                     clip: true
-
-                    // Smooth interpolation so fill doesn't "jump" between ticks.
-                    // Duration adapts to API update interval for seamless transitions.
-                    // On line transitions, use 3x faster animation to "catch up" quickly.
-                    Behavior on width {
-                        // Karaoke is already driven at ~60fps by QS-side playhead;
-                        // smoothing here would lag behind and can leave the tail slightly unfilled.
-                        enabled: line.useFill && line.externalFillProgress >= 0 && !fillOverlay.hasKaraoke
-                        NumberAnimation {
-                            duration: line.isTransition
-                                ? Math.max(10, Math.round(line.fillAnimDurationMs / 3))
-                                : Math.max(30, line.fillAnimDurationMs)
-                            easing.type: line.isTransition ? Easing.OutQuad : Easing.Linear
-                        }
-                    }
 
                     StyledText {
                         anchors.left: parent.left
@@ -473,8 +460,6 @@ Item {
             text: root.mainDisplayText
             dwellMs: (SPlayerLyrics.lineDuration ?? 0)
             externalFillProgress: (SPlayerLyrics.lineProgress ?? -1)
-            fillAnimDurationMs: (SPlayerLyrics.updateIntervalMs ?? 150)
-            isTransition: (SPlayerLyrics.isTransition ?? false)
             segments: (SPlayerLyrics.segments ?? [])
             playheadTimeMs: (SPlayerLyrics.time ?? 0)
         }

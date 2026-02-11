@@ -81,12 +81,6 @@ function normalizeLine(line) {
         }
         let s = toNumber(w.startTime, -1);
         let e = toNumber(w.endTime, -1);
-
-        // Some payloads use word times relative to the line start.
-        // Heuristic: if word time is small (e.g. <30s) while line start is large,
-        // treat it as relative and convert to absolute track time.
-        if (s >= 0 && s < 30_000 && start >= 30_000) s = start + s;
-        if (e >= 0 && e < 30_000 && start >= 30_000) e = start + e;
         const roman = (typeof w.romanWord === 'string') ? w.romanWord : '';
         return { text, start: s, end: e, roman };
       })
@@ -97,6 +91,20 @@ function normalizeLine(line) {
     // In that case, drop segments so the UI falls back to line-level progress.
     if (!segments.some(seg => String(seg.text || '').trim().length > 0)) {
       segments = [];
+    }
+
+    // Detect and fix relative word timing.
+    // If all segment end-times fall before the line start, times are relative to
+    // line start and need to be converted to absolute track time.
+    // This replaces the old per-word heuristic that only worked for lines after 30s.
+    if (segments.length > 0 && start > 0) {
+      const segMaxEnd = segments.reduce((mx, seg) => Math.max(mx, seg.end), -1);
+      if (segMaxEnd >= 0 && segMaxEnd < start) {
+        for (const seg of segments) {
+          if (seg.start >= 0) seg.start += start;
+          if (seg.end >= 0) seg.end += start;
+        }
+      }
     }
   } else if (typeof line.lyric === 'string') {
     main = line.lyric;
@@ -446,17 +454,13 @@ function connect() {
         }
 
         const now = Date.now();
-        if (now - lastProgressEmitAt >= 150) {
+        if (now - lastProgressEmitAt >= 30) {
           lastProgressEmitAt = now;
           emit({
             type: 'progress',
             time: t,
             seeked: didSeek,
-            idx,
-            lineStart,
-            lineEnd,
-            lineDuration,
-            lineProgress,
+            ts: now,  // Bridge-side timestamp; QML uses this to cancel IPC latency
           });
         }
 
