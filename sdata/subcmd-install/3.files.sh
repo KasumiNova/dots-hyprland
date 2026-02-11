@@ -206,8 +206,12 @@ case "${EXPERIMENTAL_FILES_SCRIPT}" in
 esac
 
 if [[ ! "$OS_GROUP_ID" == "fedora" ]]; then
-  showfun install_google_sans_flex
-  v install_google_sans_flex
+  # Google Sans Flex is optional. Default font across the repo is Rubik.
+  # Opt-in by running with: INSTALL_GOOGLE_SANS_FLEX=true
+  if [[ "${INSTALL_GOOGLE_SANS_FLEX}" == true ]]; then
+    showfun install_google_sans_flex
+    v install_google_sans_flex
+  fi
 fi
 
 #####################################################################################
