@@ -172,7 +172,7 @@ ContentPage {
         ContentSubsection {
             visible: settingsClock.digitalPresent
             title: Translation.tr("Digital clock settings")
-            tooltip: Translation.tr("Font width and roundness settings are only available for some fonts like Google Sans Flex")
+            tooltip: Translation.tr("Font width and roundness settings require a variable font that supports width/roundness axes")
 
             ConfigRow {
                 uniform: true

@@ -804,7 +804,7 @@ ContentPage {
 
             MaterialTextArea {
                 Layout.fillWidth: true
-                placeholderText: Translation.tr("Font family name (e.g., Google Sans Flex)")
+                placeholderText: Translation.tr("Font family name (e.g., Rubik)")
                 text: Config.options.appearance.fonts.main
                 wrapMode: TextEdit.NoWrap
                 onTextChanged: {
