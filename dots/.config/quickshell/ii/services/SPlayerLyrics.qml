@@ -170,11 +170,27 @@ Singleton {
                 // Stall guard: if no progress tick for too long, stop advancing.
                 const stalled = (root._lastProgressAtMs > 0)
                     && ((now - root._lastProgressAtMs) > root._stallTimeoutMs);
+                // Predicted playhead from last report (1× speed).
+                const predicted = Math.round(root._reportedTime + root.offsetMs + elapsed);
+
                 if (stalled) {
-                    root.time = Math.round(root._reportedTime + root.offsetMs);
+                    // If ticks stopped but we're currently within a valid lyric line, allow
+                    // the predicted time to continue advancing *up to the line end*.
+                    // This fixes the common case where the last line never gets a fill
+                    // animation because SPlayer stops emitting progress-change near track end.
+                    const s = Number(root.lineStart ?? -1);
+                    const e = Number(root.lineEnd ?? -1);
+                    const canFinishLine = (root._currentIndex >= 0) && (s >= 0) && (e > s);
+                    if (canFinishLine) {
+                        const frozen = Math.round(root._reportedTime + root.offsetMs);
+                        // Advance from the larger of current time and frozen anchor.
+                        const base = Math.max(root.time || 0, frozen);
+                        root.time = Math.min(e, Math.max(base, predicted));
+                    } else {
+                        root.time = Math.round(root._reportedTime + root.offsetMs);
+                    }
                 } else {
-                    // Simple linear extrapolation at 1× speed.
-                    root.time = Math.round(root._reportedTime + root.offsetMs + elapsed);
+                    root.time = predicted;
                 }
             }
 

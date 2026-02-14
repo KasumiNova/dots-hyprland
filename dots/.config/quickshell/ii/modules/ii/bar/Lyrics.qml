@@ -52,6 +52,9 @@ Item {
         property var segments: []
         // Current playhead time in ms (for karaoke fill)
         property int playheadTimeMs: 0
+        // Optional absolute line timing (ms). Helps drive fill even when external progress is missing.
+        property int lineStartMs: -1
+        property int lineEndMs: -1
         property int fontPixelSize: Appearance.font.pixelSize.small
         property color baseColor: Appearance.colors.colOnLayer0
         property color fillColor: Appearance.colors.colOnLayer0
@@ -85,6 +88,10 @@ Item {
         // When true, center the text horizontally (for placeholders).
         property bool centerText: false
 
+        // Internal scroll position (px). Flickable.contentX is bound to a rounded
+        // value to avoid subpixel scrolling blur.
+        property real _scrollX: 0
+
         clip: true
         implicitHeight: baseText.implicitHeight
 
@@ -99,22 +106,31 @@ Item {
             }
         }
 
-        readonly property real naturalWidth: Math.ceil(line._metricWidth(metrics))
+        readonly property real naturalWidth: Math.ceil(line.karaokeUsable
+            ? karaokeRow.implicitWidth
+            : line._metricWidth(metrics))
         readonly property real contentWidthWithSlack: line.naturalWidth + line.scrollEndSlackPx
         readonly property real maxScrollX: Math.max(0, line.contentWidthWithSlack - flick.width)
         readonly property bool shouldScroll: line.useScroll && line.maxScrollX > 1 && (line.dwellMs <= 0 || line.dwellMs >= 1800)
 
-        property real fillProgress: 1
+        readonly property bool karaokeUsable: {
+            if (!line.useFill) return false;
+            const segs = Array.isArray(line.segments) ? line.segments : [];
+            if (segs.length === 0) return false;
 
-        // Karaoke: computed state for continuous fill when segments exist.
-        // - _karaokePrevText: fully-filled prefix text
-        // - _karaokeActiveText: current segment full text (for partial fill)
-        // - _karaokeActiveProgress: 0..1 progress within active segment
-        // - _karaokeUsable: false when timing data is malformed (fallback to lineProgress fill)
-        property string _karaokePrevText: ""
-        property string _karaokeActiveText: ""
-        property real _karaokeActiveProgress: 0
-        property bool _karaokeUsable: false
+            let hasAnyText = false;
+            for (let i = 0; i < segs.length; i++) {
+                const s = segs[i];
+                const tx = String((s && s.text != null) ? s.text : "");
+                if (tx.trim().length > 0) hasAnyText = true;
+                const st = Number((s && s.start != null) ? s.start : -1);
+                const en = Number((s && s.end != null) ? s.end : -1);
+                if (!(st >= 0 && en > st)) return false;
+            }
+            return hasAnyText;
+        }
+
+        property real fillProgress: 1
 
         function _clamp01(v) {
             return Math.max(0, Math.min(1, v));
@@ -137,119 +153,55 @@ Item {
             return line._clamp01((fp - a) / (b - a));
         }
 
+        function _effectiveFillProgress() {
+            if (line.externalFillProgress >= 0) return line._clamp01(line.externalFillProgress);
+            const s = Number(line.lineStartMs ?? -1);
+            const e = Number(line.lineEndMs ?? -1);
+            if (s >= 0 && e > s) {
+                const t = Number(line.playheadTimeMs ?? 0);
+                return line._clamp01((t - s) / (e - s));
+            }
+            return line._clamp01(line.fillProgress);
+        }
+
+        function _segmentProgress(seg, isLast) {
+            const t = Number(line.playheadTimeMs ?? 0);
+            let st = Number((seg && seg.start != null) ? seg.start : -1);
+            let en = Number((seg && seg.end != null) ? seg.end : -1);
+            if (!(st >= 0 && en > st)) return 0;
+
+            // Robustness: if segment times look relative to lineStart, convert to absolute.
+            const ls = Number(line.lineStartMs ?? -1);
+            if (ls > 0 && en >= 0 && en < ls) {
+                st += ls;
+                en += ls;
+            }
+
+            // If the overall line is basically complete, force everything to full.
+            const lp = line._effectiveFillProgress();
+            if (lp >= 0.985) return 1;
+
+            if (t >= en) return 1;
+            if (t <= st) return 0;
+            let p = (t - st) / (en - st);
+            p = Math.max(0, Math.min(1, p));
+
+            // Tail guard: don't get stuck slightly below 1 if playhead stops updating a few ms early.
+            if (isLast && (en - t) <= 220) {
+                p = 1;
+            }
+            return p;
+        }
+
         function _updateScrollFromFill() {
             if (!line.shouldScroll) return;
             // If we have external scroll progress, use it directly.
             if (line.externalScrollProgress >= 0) {
-                flick.contentX = Math.round(line.maxScrollX * line._clamp01(line.externalScrollProgress));
+                line._scrollX = line.maxScrollX * line._clamp01(line.externalScrollProgress);
                 return;
             }
             if (!(line.syncScrollToFill && line.useFill)) return;
-            flick.contentX = Math.round(line.maxScrollX * line._scrollProgressFromFill(line.fillProgress));
-        }
-
-        function _updateKaraokeState() {
-            const segs = Array.isArray(line.segments) ? line.segments : [];
-            if (!line.useFill || segs.length === 0) {
-                line._karaokePrevText = "";
-                line._karaokeActiveText = "";
-                line._karaokeActiveProgress = 0;
-                line._karaokeUsable = false;
-                return;
-            }
-
-            // If the line is basically complete, force a full fill.
-            // This avoids the common "last glyph stuck at ~60-90%" issue when the
-            // last segment timing doesn't perfectly align with the line end.
-            const lp = Number(line.externalFillProgress ?? -1);
-            if (lp >= 0 && lp >= 0.985) {
-                line._karaokePrevText = line.text;
-                line._karaokeActiveText = "";
-                line._karaokeActiveProgress = 0;
-                line._karaokeUsable = true;
-                return;
-            }
-
-            // Validate timing data. If malformed, fall back to lineProgress fill.
-            let lastEnd = -1;
-            let hasAnyText = false;
-            for (let j = 0; j < segs.length; j++) {
-                const ss = segs[j];
-                const tx = String((ss && ss.text != null) ? ss.text : "");
-                if (tx.trim().length > 0) hasAnyText = true;
-                const stt = Number((ss && ss.start != null) ? ss.start : -1);
-                const enn = Number((ss && ss.end != null) ? ss.end : -1);
-                if (!(stt >= 0 && enn > stt)) {
-                    line._karaokePrevText = "";
-                    line._karaokeActiveText = "";
-                    line._karaokeActiveProgress = 0;
-                    line._karaokeUsable = false;
-                    return;
-                }
-                if (lastEnd >= 0 && stt < (lastEnd - 5)) {
-                    line._karaokePrevText = "";
-                    line._karaokeActiveText = "";
-                    line._karaokeActiveProgress = 0;
-                    line._karaokeUsable = false;
-                    return;
-                }
-                lastEnd = enn;
-            }
-            if (!hasAnyText) {
-                line._karaokePrevText = "";
-                line._karaokeActiveText = "";
-                line._karaokeActiveProgress = 0;
-                line._karaokeUsable = false;
-                return;
-            }
-            line._karaokeUsable = true;
-
-            const t = line.playheadTimeMs;
-            let prev = "";
-            let activeText = "";
-            let activeP = 0;
-            for (let i = 0; i < segs.length; i++) {
-                const s = segs[i];
-                const txt = (s && typeof s.text === "string") ? s.text : "";
-                const st = Number((s && s.start != null) ? s.start : -1);
-                const en = Number((s && s.end != null) ? s.end : -1);
-                if (!(st >= 0 && en > st)) {
-                    // No timing: treat as not yet filled.
-                    break;
-                }
-
-                if (t >= en) {
-                    prev += txt;
-                    continue;
-                }
-
-                if (t <= st) {
-                    activeText = txt;
-                    activeP = 0;
-                    break;
-                }
-
-                // Within this segment: fill continuously by clipping width.
-                activeText = txt;
-                activeP = Math.max(0, Math.min(1, (t - st) / (en - st)));
-
-                // If this is the last segment, allow a tiny epsilon so we don't
-                // get stuck at 99% when the playhead stops updating a few ms early.
-                if (i === segs.length - 1 && (en - t) <= 45) {
-                    activeP = 1;
-                }
-                break;
-            }
-
-            // If all segments are complete, ensure fill covers the full line text
-            // (handles cases where segment texts don't perfectly match line.text).
-            if (activeText.length === 0 && prev.length > 0) {
-                prev = line.text;
-            }
-
-            line._karaokePrevText = prev;
-            line._karaokeActiveText = activeText;
-            line._karaokeActiveProgress = activeP;
+            line._scrollX = line.maxScrollX * line._scrollProgressFromFill(line.fillProgress);
         }
 
         function restartAnimations() {
@@ -258,6 +210,10 @@ Item {
                 // External progress is already smooth (predicted locally), just follow it.
                 fillAnim.stop();
                 line.fillProgress = line._clamp01(line.externalFillProgress);
+            } else if ((Number(line.lineStartMs ?? -1) >= 0) && (Number(line.lineEndMs ?? -1) > Number(line.lineStartMs ?? -1))) {
+                // Time-driven fallback: compute from playhead + line timing.
+                fillAnim.stop();
+                line.fillProgress = line._effectiveFillProgress();
             } else if (line.useFill && line.text.length > 0) {
                 line.fillProgress = 0;
                 fillAnim.restart();
@@ -277,14 +233,11 @@ Item {
                 scrollAnim.restart();
             } else {
                 scrollAnim.stop();
-                flick.contentX = 0;
+                line._scrollX = 0;
             }
 
             // If synced, set initial scroll position.
             line._updateScrollFromFill();
-
-            // Karaoke state.
-            line._updateKaraokeState();
         }
 
         onTextChanged: Qt.callLater(line.restartAnimations)
@@ -297,7 +250,6 @@ Item {
             fillAnim.stop();
             line.fillProgress = line._clamp01(line.externalFillProgress);
             line._updateScrollFromFill();
-            line._updateKaraokeState();
         }
 
         onExternalScrollProgressChanged: {
@@ -307,8 +259,16 @@ Item {
         }
 
         onFillProgressChanged: line._updateScrollFromFill()
-        onPlayheadTimeMsChanged: line._updateKaraokeState()
-        onSegmentsChanged: line._updateKaraokeState()
+        // Per-word karaoke fill is purely time-driven; just ensure scroll stays in sync.
+        onPlayheadTimeMsChanged: {
+            if (line.externalFillProgress < 0) {
+                // Best-effort fallback when external fill isn't provided.
+                // (If lineStart/lineEnd exists, this is the primary driver.)
+                line.fillProgress = line._effectiveFillProgress();
+            }
+            line._updateScrollFromFill();
+        }
+        onSegmentsChanged: Qt.callLater(line.restartAnimations)
 
         NumberAnimation {
             id: fillAnim
@@ -325,8 +285,8 @@ Item {
 
             PauseAnimation { duration: line.scrollStartDelayMs }
             NumberAnimation {
-                target: flick
-                property: "contentX"
+                target: line
+                property: "_scrollX"
                 from: 0
                 to: line.maxScrollX
                 duration: Math.max(1, Math.round((line.maxScrollX / Math.max(1, line.scrollSpeed)) * 1000))
@@ -334,8 +294,8 @@ Item {
             }
             PauseAnimation { duration: line.scrollEndPauseMs }
             NumberAnimation {
-                target: flick
-                property: "contentX"
+                target: line
+                property: "_scrollX"
                 from: line.maxScrollX
                 to: 0
                 duration: Math.max(1, Math.round((line.maxScrollX / Math.max(1, line.scrollSpeed)) * 1000))
@@ -350,6 +310,7 @@ Item {
             clip: true
             interactive: false
             boundsBehavior: Flickable.StopAtBounds
+            contentX: Math.round(line._scrollX)
             contentHeight: height
             contentWidth: line.shouldScroll ? line.contentWidthWithSlack : width
 
@@ -357,29 +318,6 @@ Item {
                 id: content
                 width: flick.contentWidth
                 height: flick.height
-
-                // Measures the karaoke prefix and current segment widths for continuous fill.
-                TextMetrics {
-                    id: karaokePrevMetrics
-                    text: line._karaokePrevText
-                    font {
-                        family: Appearance.font.family.main
-                        pixelSize: line.fontPixelSize
-                        hintingPreference: Font.PreferDefaultHinting
-                        variableAxes: Appearance.font.variableAxes.main
-                    }
-                }
-
-                TextMetrics {
-                    id: karaokePrevPlusMetrics
-                    text: line._karaokePrevText + line._karaokeActiveText
-                    font {
-                        family: Appearance.font.family.main
-                        pixelSize: line.fontPixelSize
-                        hintingPreference: Font.PreferDefaultHinting
-                        variableAxes: Appearance.font.variableAxes.main
-                    }
-                }
 
                 // Base text (optionally elided when not scrolling)
                 StyledText {
@@ -396,6 +334,74 @@ Item {
                     color: line.baseColor
                     animateChange: line.animateChange && !line.shouldScroll
                     animationDistanceY: line.animationDistanceY
+                    visible: !line.karaokeUsable
+                }
+
+                // Karaoke (word-by-word) rendering: each word is filled independently.
+                // This avoids the classic "last glyph stuck at ~90%" issue caused by
+                // prefix width estimation or segment/text mismatch.
+                Row {
+                    id: karaokeRow
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 0
+                    visible: line.karaokeUsable
+
+                    Repeater {
+                        model: Array.isArray(line.segments) ? line.segments : []
+
+                        delegate: Item {
+                            id: wordItem
+                            required property var modelData
+                            readonly property string wordText: String((modelData && modelData.text != null) ? modelData.text : "")
+                            readonly property bool isLast: (index === (Array.isArray(line.segments) ? (line.segments.length - 1) : -1))
+                            readonly property real p: line._segmentProgress(modelData, wordItem.isLast)
+
+                            implicitWidth: Math.ceil(baseWord.implicitWidth)
+                            implicitHeight: Math.ceil(baseWord.implicitHeight)
+
+                            // Base (dim) layer
+                            Text {
+                                id: baseWord
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: wordItem.wordText
+                                color: line.baseColor
+                                wrapMode: Text.NoWrap
+                                renderType: Text.NativeRendering
+                                font {
+                                    family: Appearance.font.family.main
+                                    pixelSize: line.fontPixelSize
+                                    hintingPreference: Font.PreferDefaultHinting
+                                    variableAxes: Appearance.font.variableAxes.main
+                                }
+                            }
+
+                            // Fill (bright) layer, clipped by per-word progress
+                            Item {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: Math.round(baseWord.contentWidth * Math.max(0, Math.min(1, wordItem.p)))
+                                clip: true
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: wordItem.wordText
+                                    color: line.fillColor
+                                    wrapMode: Text.NoWrap
+                                    renderType: Text.NativeRendering
+                                    font {
+                                        family: Appearance.font.family.main
+                                        pixelSize: line.fontPixelSize
+                                        hintingPreference: Font.PreferDefaultHinting
+                                        variableAxes: Appearance.font.variableAxes.main
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Fill/reveal overlay (clipped)
@@ -405,21 +411,13 @@ Item {
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     readonly property real fillBaseWidth: line.shouldScroll ? line.naturalWidth : flick.width
-                    readonly property bool hasKaraoke: !!line._karaokeUsable
-                    readonly property real karaokePrevW: Math.ceil(line._metricWidth(karaokePrevMetrics))
-                    readonly property real karaokePrevPlusW: Math.ceil(line._metricWidth(karaokePrevPlusMetrics))
-                    // Karaoke fill width from segment timing.
-                    readonly property real karaokeRawWidth: fillOverlay.karaokePrevW + (fillOverlay.karaokePrevPlusW - fillOverlay.karaokePrevW) * Math.max(0, Math.min(1, line._karaokeActiveProgress))
-                    // Use lineProgress as a fallback floor: ensures fill never lags behind overall line timing.
-                    // This is the key fix for "last glyph stuck" when segment timing doesn't align perfectly.
                     readonly property real lineProgressWidth: fillBaseWidth * Math.max(0, Math.min(1, line.fillProgress))
                     readonly property real targetWidth: line.useFill
-                        ? (fillOverlay.hasKaraoke
-                            ? fillOverlay.karaokeRawWidth
-                            : fillOverlay.lineProgressWidth)
+                        ? fillOverlay.lineProgressWidth
                         : 0
                     width: targetWidth
                     clip: true
+                    visible: !line.karaokeUsable
 
                     StyledText {
                         anchors.left: parent.left
@@ -462,6 +460,8 @@ Item {
             externalFillProgress: (SPlayerLyrics.lineProgress ?? -1)
             segments: (SPlayerLyrics.segments ?? [])
             playheadTimeMs: (SPlayerLyrics.time ?? 0)
+            lineStartMs: (SPlayerLyrics.lineStart ?? -1)
+            lineEndMs: (SPlayerLyrics.lineEnd ?? -1)
         }
 
         // Translation line: sync scroll with main line, no fill.
