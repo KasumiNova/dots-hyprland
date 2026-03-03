@@ -66,6 +66,10 @@ function getCalendarLayout(dateObject, highlight) {
     const day = dateObject.getDate();
     const month = dateObject.getMonth() + 1;
     const year = dateObject.getFullYear();
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
     const weekdayOfMonthFirst = (weekday + 35 - (day - 1)) % 7;
     const daysInMonth = getMonthDays(month, year);
     const daysInNextMonth = getNextMonthDays(month, year);
@@ -85,8 +89,23 @@ function getCalendarLayout(dateObject, highlight) {
     var calendar = [...Array(6)].map(() => Array(7));
     var i = 0, j = 0;
     while (i < 6 && j < 7) {
+        let tileMonth = month;
+        let tileYear = year;
+        if (monthDiff < 0) {
+            tileMonth = prevMonth;
+            tileYear = prevYear;
+        } else if (monthDiff > 0) {
+            tileMonth = nextMonth;
+            tileYear = nextYear;
+        }
+        const tileDate = new Date(tileYear, tileMonth - 1, toFill);
+
         calendar[i][j] = {
             "day": toFill,
+            "month": tileMonth,
+            "year": tileYear,
+            "date": tileDate,
+            "inCurrentMonth": monthDiff == 0,
             "today": ((toFill == day && monthDiff == 0 && highlight) ? 1 : (
                 monthDiff == 0 ? 0 : -1
             ))

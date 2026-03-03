@@ -21,6 +21,7 @@ Item {
     id: root
     property int sidebarWidth: Appearance.sizes.sidebarWidth
     property int sidebarPadding: 10
+    readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
     property string settingsQmlPath: Quickshell.shellPath("settings.qml")
     property bool showAudioOutputDialog: false
     property bool showAudioInputDialog: false
@@ -54,9 +55,10 @@ Item {
         implicitHeight: parent.height - Appearance.sizes.hyprlandGapsOut * 2
         implicitWidth: sidebarWidth - Appearance.sizes.hyprlandGapsOut * 2
         color: Appearance.colors.colLayer0
-        border.width: 1
+        border.width: 1 / root.pixelRatio
         border.color: Appearance.colors.colLayer0Border
-        radius: Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1
+        radius: Math.round((Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1) * root.pixelRatio) / root.pixelRatio
+        antialiasing: true
 
         ColumnLayout {
             anchors.fill: parent

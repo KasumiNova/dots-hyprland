@@ -10,7 +10,9 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
-    radius: Appearance.rounding.normal
+    readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
+    radius: Math.round(Appearance.rounding.normal * pixelRatio) / pixelRatio
+    antialiasing: true
     color: Appearance.colors.colLayer1
     clip: true
     implicitHeight: collapsed ? collapsedBottomWidgetGroupRow.implicitHeight : 350

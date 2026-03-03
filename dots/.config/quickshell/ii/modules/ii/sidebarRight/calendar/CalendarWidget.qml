@@ -2,15 +2,24 @@ import qs.services
 import qs.modules.common
 import qs.modules.common.widgets
 import "calendar_layout.js" as CalendarLayout
+import "lunar_calendar.js" as LunarCalendar
 import QtQuick
 import QtQuick.Layouts
 
 Item {
+    id: root
     // Layout.topMargin: 10
     anchors.topMargin: 10
     property int monthShift: 0
     property var viewingDate: CalendarLayout.getDateInXMonthsTime(monthShift)
     property var calendarLayout: CalendarLayout.getCalendarLayout(viewingDate, monthShift === 0)
+    readonly property string activeLanguageCode: (Translation.languageCode ?? "").toString().replace("-", "_").toLowerCase()
+    readonly property string systemLocaleCode: (Qt.locale().name ?? "").toString().replace("-", "_").toLowerCase()
+    readonly property string configuredLanguageCode: (Config?.options?.language?.ui ?? "").toString().replace("-", "_").toLowerCase()
+    readonly property bool showChineseLunar: activeLanguageCode.startsWith("zh") || configuredLanguageCode.startsWith("zh") || systemLocaleCode.startsWith("zh")
+    readonly property bool chineseLunarSupported: LunarCalendar.isSupported(new Date())
+    readonly property real calendarCellScale: 1.0
+    readonly property real calendarTextScale: showChineseLunar ? 1.3 : 1.0
     width: calendarColumn.width
     implicitHeight: calendarColumn.height + 10 * 2
 
@@ -93,8 +102,10 @@ Item {
                 model: CalendarLayout.weekDays
                 delegate: CalendarDayButton {
                     day: Translation.tr(modelData.day)
-                    isToday: modelData.today
+                    isToday: typeof modelData.today === "number" ? modelData.today : -1
                     bold: true
+                    showSubLabel: false
+                    cellScale: root.calendarCellScale
                     enabled: false
                 }
             }
@@ -112,8 +123,16 @@ Item {
                 Repeater {
                     model: Array(7).fill(modelData)
                     delegate: CalendarDayButton {
-                        day: calendarLayout[modelData][index].day
-                        isToday: calendarLayout[modelData][index].today
+                        property var cellModel: calendarLayout[modelData] ? calendarLayout[modelData][index] : null
+                        day: cellModel && cellModel.day !== undefined ? cellModel.day : ""
+                        isToday: cellModel && typeof cellModel.today === "number" ? cellModel.today : -1
+                        cellScale: root.calendarCellScale
+                        dayFontScale: root.calendarTextScale
+                        subLabelFontScale: root.calendarTextScale
+                        subLabelPixelSize: 11
+                        showSubLabel: root.showChineseLunar && root.chineseLunarSupported
+                        subLabel: !cellModel || cellModel.today === -1 ? "" : LunarCalendar.lunarSubLabelText(cellModel.date)
+                        highlightSubLabel: !!(cellModel && cellModel.today !== -1 && LunarCalendar.lunarFestivalText(cellModel.date).length > 0)
                     }
                 }
             }
