@@ -164,11 +164,14 @@ Item {
             return line._clamp01(line.fillProgress);
         }
 
-        function _segmentProgress(seg, isLast) {
+        function _segmentProgress(seg) {
             const t = Number(line.playheadTimeMs ?? 0);
             let st = Number((seg && seg.start != null) ? seg.start : -1);
             let en = Number((seg && seg.end != null) ? seg.end : -1);
             if (!(st >= 0 && en > st)) return 0;
+
+            const segs = Array.isArray(line.segments) ? line.segments : [];
+            const isLast = segs.length > 0 && seg === segs[segs.length - 1];
 
             // Robustness: if segment times look relative to lineStart, convert to absolute.
             const ls = Number(line.lineStartMs ?? -1);
@@ -354,8 +357,7 @@ Item {
                             id: wordItem
                             required property var modelData
                             readonly property string wordText: String((modelData && modelData.text != null) ? modelData.text : "")
-                            readonly property bool isLast: (index === (Array.isArray(line.segments) ? (line.segments.length - 1) : -1))
-                            readonly property real p: line._segmentProgress(modelData, wordItem.isLast)
+                            readonly property real p: line._segmentProgress(modelData)
 
                             implicitWidth: Math.ceil(baseWord.implicitWidth)
                             implicitHeight: Math.ceil(baseWord.implicitHeight)
