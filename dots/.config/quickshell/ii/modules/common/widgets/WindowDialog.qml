@@ -10,7 +10,7 @@ Rectangle {
 
     property bool show: false
     default property alias data: contentColumn.data
-    default property alias contentData: contentColumn.data
+    property alias contentData: contentColumn.data
     // Natural dialog height (content-driven). This must not depend on dialogBackground.implicitHeight,
     // otherwise hiding (implicitHeight=0) would collapse the remembered height and break show animation.
     property real backgroundHeight: contentColumn.implicitHeight + dialogBackground.radius * 2
