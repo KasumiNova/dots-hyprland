@@ -28,6 +28,6 @@ if status is-interactive
         alias ls 'eza --icons'
     end
     if test "$TERM" = "xterm-kitty"
-        alias ssh 'kitten ssh'
+        alias kssh 'kitten ssh'
     end
 end
