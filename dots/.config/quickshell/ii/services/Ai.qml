@@ -113,6 +113,7 @@ Singleton {
     property string openaiBaseUrl: Persistent.states?.ai?.openaiBaseUrl ?? ""
     readonly property string openaiApiKey: KeyringStorage.keyringData?.ai?.openaiApiKey ?? ""
     readonly property bool currentModelHasApiKey: (root.openaiApiKey ?? "").trim().length > 0
+    property var postResponseHook
 
     // Local backend (OpenAI-compatible proxy) managed by systemd.
     // QS only checks health status; lifecycle is handled externally.
@@ -778,7 +779,7 @@ Singleton {
     // Note: Tool definitions are now managed by the backend (server.py).
     // The backend automatically injects tools and handles execution.
     // Frontend only displays tool execution events and results.
-    property string currentTool: "functions"  // Kept for UI compatibility
+    property string currentTool: Config?.options?.ai?.tool ?? "functions"  // Kept for UI compatibility
     property list<var> availableTools: ["functions", "none"]
     property var toolDescriptions: {
         "functions": Translation.tr("Commands, edit configs, search.\nTakes an extra turn to switch to search mode if that's needed"),
@@ -822,11 +823,44 @@ Singleton {
     // Single strategy: OpenAI-style (consuming the backend's OpenAI-compatible endpoint).
     property ApiStrategy currentApiStrategy: openaiApiStrategy.createObject(this)
 
+    function addUserModels() {
+        (Config?.options.ai?.extraModels ?? []).forEach(model => {
+            if (!model || !model["model"]) return;
+            const safeModelName = root.safeModelName(model["model"]);
+            if (root.models[safeModelName]) return;
+
+            const mergedModel = Object.assign({
+                "name": model["name"] ?? root.guessModelName(model["model"]),
+                "icon": model["icon"] ?? root.guessModelLogo(model["model"]),
+                "description": model["description"] ?? Translation.tr("Local backend | Uses your API settings"),
+                "homepage": model["homepage"] ?? "",
+                "endpoint": root.backendChatCompletionsUrl,
+                "requires_key": model["requires_key"] !== false,
+                "api_format": "openai",
+            }, model, {
+                // Preserve downstream backend routing for chat/session/tool support.
+                "endpoint": root.backendChatCompletionsUrl,
+                "api_format": "openai",
+            });
+
+            root.addModel(safeModelName, mergedModel)
+        });
+    }
+
+    Connections {
+        target: Config
+        function onReadyChanged() {
+            if (!Config.ready) return;
+            root.addUserModels()
+        }
+    }
+
     property string requestScriptFilePath: "/tmp/quickshell/ai/request.sh"
     property string pendingFilePath: ""
 
     Component.onCompleted: {
         setModel(currentModelId, false, false); // Do necessary setup for model
+        root.addUserModels() // Config onReadyChanged above might not fire if config is loaded before this service
         // Load current chat from backend after a short delay to ensure backend is ready
         loadCurrentChatTimer.restart();
     }
@@ -860,9 +894,9 @@ Singleton {
     }
 
     function addModel(modelName, data) {
-        root.models[modelName] = aiModelComponent.createObject(this, data);
-
-        // Keep modelList in sync so /model can select custom models
+        root.models = Object.assign({}, root.models, {
+            [modelName]: aiModelComponent.createObject(this, data)
+        });
         root.modelList = Object.keys(root.models);
     }
 
@@ -1073,8 +1107,7 @@ Singleton {
     }
 
     function setTool(tool) {
-        const fmt = getModel()?.api_format || "openai";
-        if (!root.tools[fmt] || !(tool in root.tools[fmt])) {
+        if (root.availableTools.indexOf(tool) === -1) {
             root.addMessage(Translation.tr("Invalid tool. Supported tools:\n- %1").arg(root.availableTools.join("\n- ")), root.interfaceRole);
             return false;
         }

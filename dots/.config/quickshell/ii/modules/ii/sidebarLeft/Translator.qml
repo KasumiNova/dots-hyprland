@@ -141,6 +141,7 @@ Item {
         command: ["bash", "-c", `trans -brief`
             + ` -source '${StringUtils.shellSingleQuoteEscape(root.normalizeLanguageCode(root.sourceLanguage))}'`
             + ` -target '${StringUtils.shellSingleQuoteEscape(root.normalizeLanguageCode(root.targetLanguage))}'`
+            + ` -no-bidi`
             + ` '${StringUtils.shellSingleQuoteEscape(root.inputField.text.trim())}'`]
         property string buffer: ""
         stdout: SplitParser {
