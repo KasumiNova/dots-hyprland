@@ -195,8 +195,8 @@ Variants {
                     }
                 }
                 sourceSize {
-                    width: bgRoot.scaledWallpaperWidth
-                    height: bgRoot.scaledWallpaperHeight
+                    width: Math.ceil(bgRoot.scaledWallpaperWidth * bgRoot.monitor.scale)
+                    height: Math.ceil(bgRoot.scaledWallpaperHeight * bgRoot.monitor.scale)
                 }
                 width: bgRoot.scaledWallpaperWidth
                 height: bgRoot.scaledWallpaperHeight
