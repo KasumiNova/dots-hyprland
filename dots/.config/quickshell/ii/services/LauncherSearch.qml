@@ -146,7 +146,7 @@ Singleton {
         {
             action: "wallpaper",
             execute: () => {
-                Hyprland.dispatch("global quickshell:wallpaperSelectorToggle")
+                Hyprland.dispatch(`hl.dsp.global("quickshell:wallpaperSelectorToggle")`)
             }
         },
         {
