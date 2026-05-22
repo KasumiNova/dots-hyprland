@@ -64,7 +64,7 @@ Singleton {
 
         // Less than 1 minute
         if (diffMs < 60000)
-            return DateTime.useChineseDateFormat ? '现在' : 'Now';
+            return Translation.tr("Now");
 
         // Same day - show relative time
         if (messageTime.toDateString() === now.toDateString()) {
@@ -72,15 +72,15 @@ Singleton {
             const diffHours = Math.floor(diffMs / 3600000);
 
             if (diffHours > 0) {
-                return DateTime.useChineseDateFormat ? `${diffHours}小时` : `${diffHours}h`;
+                return DateTime.useChineseDateFormat ? Translation.tr("%1 hours").arg(diffHours) : `${diffHours}h`;
             } else {
-                return DateTime.useChineseDateFormat ? `${diffMinutes}分钟` : `${diffMinutes}m`;
+                return DateTime.useChineseDateFormat ? Translation.tr("%1 minutes").arg(diffMinutes) : `${diffMinutes}m`;
             }
         }
 
         // Yesterday
         if (messageTime.toDateString() === new Date(now.getTime() - 86400000).toDateString())
-            return DateTime.useChineseDateFormat ? '昨天' : 'Yesterday';
+            return Translation.tr("Yesterday");
 
         // Older dates
         return DateTime.formatDate(messageTime, "long");

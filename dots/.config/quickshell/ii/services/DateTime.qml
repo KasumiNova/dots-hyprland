@@ -1,6 +1,7 @@
 pragma Singleton
 pragma ComponentBehavior: Bound
 import qs
+import qs.services
 import qs.modules.common
 import QtQuick
 import Quickshell
@@ -63,15 +64,15 @@ Singleton {
         if (useChineseDateFormat) {
             switch (style) {
             case "short":
-                return displayLocale.toString(date, "M/d");
+                return displayLocale.toString(date, Translation.tr("Date format short"));
             case "medium":
-                return displayLocale.toString(date, "yyyy/M/d");
+                return displayLocale.toString(date, Translation.tr("Date format medium"));
             case "long":
-                return displayLocale.toString(date, "M月d日 ddd");
+                return displayLocale.toString(date, Translation.tr("Date format long"));
             case "full":
-                return displayLocale.toString(date, "yyyy年M月d日 dddd");
+                return displayLocale.toString(date, Translation.tr("Date format full"));
             default:
-                return displayLocale.toString(date, "yyyy年M月d日 dddd");
+                return displayLocale.toString(date, Translation.tr("Date format full"));
             }
         }
 
@@ -99,11 +100,11 @@ Singleton {
         if (useChineseDateFormat) {
             let parts = [];
             if (days > 0)
-                parts.push(`${days}天`);
+                parts.push(Translation.tr("%1 days").arg(days));
             if (hours > 0)
-                parts.push(`${hours}小时`);
+                parts.push(Translation.tr("%1 hours").arg(hours));
             if (minutes > 0 || parts.length === 0)
-                parts.push(`${minutes}分钟`);
+                parts.push(Translation.tr("%1 minutes").arg(minutes));
             return parts.join(" ");
         }
 

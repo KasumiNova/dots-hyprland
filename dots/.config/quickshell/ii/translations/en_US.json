@@ -612,5 +612,14 @@
   "Use varying shapes for password characters": "Use varying shapes for password characters",
   "Battery full": "Battery full",
   "Pin": "Pin",
-  "Unpin": "Unpin"
+  "Unpin": "Unpin",
+  "Date format short": "M/d",
+  "Date format medium": "M/d/yyyy",
+  "Date format long": "ddd, M/d",
+  "Date format full": "dddd, MMMM d, yyyy",
+  "%1 days": "%1d",
+  "%1 hours": "%1h",
+  "%1 minutes": "%1m",
+  "Now": "Now",
+  "Yesterday": "Yesterday"
 }
