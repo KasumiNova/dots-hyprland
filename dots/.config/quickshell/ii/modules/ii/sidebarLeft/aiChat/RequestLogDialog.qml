@@ -261,6 +261,10 @@ Item {
                             font.family: "monospace"
                             color: Appearance.m3colors.m3onSurface
                             background: null
+
+                            ContextMenu.menu: TextEditingContextMenu {
+                                editor: detailText
+                            }
                         }
                     }
                 }

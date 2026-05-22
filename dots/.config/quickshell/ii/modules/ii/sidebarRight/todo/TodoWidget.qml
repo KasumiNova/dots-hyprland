@@ -181,6 +181,10 @@ Item {
                     focus: root.showAddDialog
                     onAccepted: dialog.addTask()
 
+                    ContextMenu.menu: TextEditingContextMenu {
+                        editor: todoInput
+                    }
+
                     background: Rectangle {
                         anchors.fill: parent
                         radius: Appearance.rounding.verysmall

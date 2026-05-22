@@ -50,4 +50,8 @@ TextArea {
         variableAxes: Appearance.font.variableAxes.main
     }
     wrapMode: TextEdit.Wrap
+
+    ContextMenu.menu: TextEditingContextMenu {
+        editor: root
+    }
 }

@@ -31,10 +31,7 @@ TextField {
     }
     wrapMode: TextEdit.Wrap
 
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.NoButton
-        hoverEnabled: true
-        cursorShape: Qt.IBeamCursor
+    ContextMenu.menu: TextEditingContextMenu {
+        editor: root
     }
 }
