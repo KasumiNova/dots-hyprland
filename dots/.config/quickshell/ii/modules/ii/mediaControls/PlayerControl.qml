@@ -9,6 +9,7 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Mpris
 
@@ -25,6 +26,7 @@ Item { // Player instance
     property real maxVisualizerValue: 1000 // Max value in the data points
     property int visualizerSmoothing: 2 // Number of points to average for smoothing
     property real radius
+    readonly property real outputScale: Math.max(1, Hyprland.monitorFor(root.QsWindow.window?.screen)?.scale ?? Screen.devicePixelRatio ?? 1)
 
     property string displayedArtFilePath: root.downloaded ? Qt.resolvedUrl(artFilePath) : ""
 
@@ -104,44 +106,49 @@ Item { // Player instance
         color: ColorUtils.applyAlpha(blendedColors.colLayer0, 1)
         radius: root.radius
 
-        layer.enabled: true
-        layer.effect: OpacityMask {
-            maskSource: Rectangle {
-                width: background.width
-                height: background.height
-                radius: background.radius
-            }
-        }
-
-        StyledImage {
-            id: blurredArt
+        Item {
+            id: visualLayer
             anchors.fill: parent
-            source: root.displayedArtFilePath
-            fillMode: Image.PreserveAspectCrop
-            cache: false
-            antialiasing: true
-            asynchronous: true
-
             layer.enabled: true
-            layer.effect: StyledBlurEffect {
-                source: blurredArt
+            layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * root.outputScale)), Math.max(1, Math.ceil(height * root.outputScale)))
+            layer.effect: OpacityMask {
+                maskSource: Rectangle {
+                    width: visualLayer.width
+                    height: visualLayer.height
+                    radius: root.radius
+                }
             }
 
-            Rectangle {
+            StyledImage {
+                id: blurredArt
                 anchors.fill: parent
-                color: ColorUtils.transparentize(blendedColors.colLayer0, 0.3)
-                radius: root.radius
-            }
-        }
+                source: root.displayedArtFilePath
+                fillMode: Image.PreserveAspectCrop
+                cache: false
+                antialiasing: true
+                asynchronous: true
 
-        WaveVisualizer {
-            id: visualizerCanvas
-            anchors.fill: parent
-            live: root.player?.isPlaying
-            points: root.visualizerPoints
-            maxVisualizerValue: root.maxVisualizerValue
-            smoothing: root.visualizerSmoothing
-            color: blendedColors.colPrimary
+                layer.enabled: true
+                layer.effect: StyledBlurEffect {
+                    source: blurredArt
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: ColorUtils.transparentize(blendedColors.colLayer0, 0.3)
+                    radius: root.radius
+                }
+            }
+
+            WaveVisualizer {
+                id: visualizerCanvas
+                anchors.fill: parent
+                live: root.player?.isPlaying
+                points: root.visualizerPoints
+                maxVisualizerValue: root.maxVisualizerValue
+                smoothing: root.visualizerSmoothing
+                color: blendedColors.colPrimary
+            }
         }
 
         RowLayout {
@@ -157,6 +164,7 @@ Item { // Player instance
                 color: ColorUtils.transparentize(blendedColors.colLayer1, 0.5)
 
                 layer.enabled: true
+                layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * root.outputScale)), Math.max(1, Math.ceil(height * root.outputScale)))
                 layer.effect: OpacityMask {
                     maskSource: Rectangle {
                         width: artBackground.width
@@ -174,6 +182,7 @@ Item { // Player instance
                     fillMode: Image.PreserveAspectCrop
                     cache: false
                     antialiasing: true
+                    sourceSize: Qt.size(width * root.outputScale, height * root.outputScale)
 
                     width: size
                     height: size

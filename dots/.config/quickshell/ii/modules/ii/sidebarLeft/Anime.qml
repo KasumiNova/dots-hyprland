@@ -7,7 +7,6 @@ import qs.modules.ii.sidebarLeft.anime
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
 import Quickshell
 
 Item {
@@ -152,15 +151,6 @@ Item {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-
-            layer.enabled: true
-            layer.effect: OpacityMask {
-                maskSource: Rectangle {
-                    width: swipeView.width
-                    height: swipeView.height
-                    radius: Appearance.rounding.small
-                }
-            }
 
             ScrollEdgeFade {
                 z: 1

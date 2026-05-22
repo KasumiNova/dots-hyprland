@@ -5,10 +5,13 @@ import qs.modules.common.functions
 import Qt5Compat.GraphicalEffects
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 Rectangle {
     id: root
+    readonly property real outputScale: Math.max(1, Hyprland.monitorFor(root.QsWindow.window?.screen)?.scale ?? Screen.devicePixelRatio ?? 1)
+
     property string entry
     property real maxWidth
     property real maxHeight
@@ -69,6 +72,7 @@ Rectangle {
     }
 
     layer.enabled: true
+    layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * outputScale)), Math.max(1, Math.ceil(height * outputScale)))
     layer.effect: OpacityMask {
         maskSource: Rectangle {
             width: image.width

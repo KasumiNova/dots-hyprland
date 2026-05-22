@@ -4,11 +4,15 @@ import qs.services
 import qs.modules.common.functions
 import Qt5Compat.GraphicalEffects
 import QtQuick
+import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Widgets
 
 IconImage {
     id: root
+    readonly property real outputScale: Math.max(1, Hyprland.monitorFor(root.QsWindow.window?.screen)?.scale ?? Screen.devicePixelRatio ?? 1)
+
     property string url
     property string displayText
 
@@ -38,6 +42,7 @@ IconImage {
     implicitSize: root.size
 
     layer.enabled: true
+    layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * outputScale)), Math.max(1, Math.ceil(height * outputScale)))
     layer.effect: OpacityMask {
         maskSource: Rectangle {
             width: root.implicitSize

@@ -9,7 +9,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
-import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: root
@@ -105,14 +104,6 @@ Rectangle {
             contentWidth: tagRowLayout.implicitWidth
 
             clip: true
-            layer.enabled: true
-            layer.effect: OpacityMask {
-                maskSource: Rectangle {
-                    width: tagsFlickable.width
-                    height: tagsFlickable.height
-                    radius: Appearance.rounding.small
-                }
-            }
 
             Behavior on implicitHeight {
                 animation: Appearance.animation.elementMove.numberAnimation.createObject(this)

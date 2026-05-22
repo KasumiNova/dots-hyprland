@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Qt5Compat.GraphicalEffects
 import qs.modules.common
 import qs.modules.common.functions
@@ -9,6 +10,8 @@ import qs.modules.ii.overlay
 
 StyledOverlayWidget {
     id: root
+    readonly property real outputScale: Math.max(1, Hyprland.monitorFor(root.QsWindow.window?.screen)?.scale ?? Screen.devicePixelRatio ?? 1)
+
     showClickabilityButton: false
     resizable: false
     clickthrough: true
@@ -59,6 +62,7 @@ StyledOverlayWidget {
         }
 
         layer.enabled: true
+        layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * root.outputScale)), Math.max(1, Math.ceil(height * root.outputScale)))
         layer.effect: OpacityMask {
             maskSource: Rectangle {
                 width: bg.width

@@ -14,6 +14,8 @@ import Quickshell.Hyprland
 
 Button {
     id: root
+    readonly property real outputScale: Math.max(1, Hyprland.monitorFor(root.QsWindow.window?.screen)?.scale ?? Screen.devicePixelRatio ?? 1)
+
     property var imageData
     property var rowHeight
     property bool manualDownload: false
@@ -69,6 +71,7 @@ Button {
             source: modelData.preview_url
 
             layer.enabled: true
+            layer.textureSize: Qt.size(Math.max(1, Math.ceil(width * root.outputScale)), Math.max(1, Math.ceil(height * root.outputScale)))
             layer.effect: OpacityMask {
                 maskSource: Rectangle {
                     width: root.rowHeight * modelData.aspect_ratio

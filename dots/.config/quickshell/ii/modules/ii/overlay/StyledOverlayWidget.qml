@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Qt5Compat.GraphicalEffects
 import qs
 import qs.modules.common
 import qs.modules.common.functions
@@ -203,15 +202,6 @@ AbstractOverlayWidget {
         radius: root.radius
         border.color: ColorUtils.transparentize(Appearance.colors.colOutlineVariant, GlobalStates.overlayOpen ? 0 : 1)
         border.width: 1
-
-        layer.enabled: GlobalStates.overlayOpen
-        layer.effect: OpacityMask {
-            maskSource: Rectangle {
-                width: border.width
-                height: border.height
-                radius: root.radius
-            }
-        }
 
         ColumnLayout {
             id: contentColumn

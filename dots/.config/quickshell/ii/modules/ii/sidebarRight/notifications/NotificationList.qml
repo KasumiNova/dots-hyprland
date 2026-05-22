@@ -1,7 +1,6 @@
 import qs.modules.common
 import qs.modules.common.widgets
 import qs.services
-import Qt5Compat.GraphicalEffects
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -11,6 +10,7 @@ Item {
 
     NotificationListView { // Scrollable window
         id: listview
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -18,14 +18,6 @@ Item {
         anchors.bottomMargin: 5
 
         clip: true
-        layer.enabled: true
-        layer.effect: OpacityMask {
-            maskSource: Rectangle {
-                width: listview.width
-                height: listview.height
-                radius: Appearance.rounding.normal
-            }
-        }
 
         popup: false
     }
