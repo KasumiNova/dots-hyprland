@@ -15,9 +15,9 @@ QuickToggleModel {
     
     mainAction: () => {
         if (Appearance.m3colors.darkmode) {
-            Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
+            Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
         } else {
-            Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
+            Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
         }
     }
 

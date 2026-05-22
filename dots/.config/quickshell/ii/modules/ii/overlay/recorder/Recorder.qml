@@ -58,7 +58,7 @@ StyledOverlayWidget {
                     name: "Record screen"
                     onClicked: {
                         GlobalStates.overlayOpen = false;
-                        Quickshell.execDetached([Directories.recordScriptPath, "--fullscreen", "--sound"]);
+                        Quickshell.execDetached(["bash", Directories.recordScriptPath, "--fullscreen", "--sound"]);
                     }
                 }
             }

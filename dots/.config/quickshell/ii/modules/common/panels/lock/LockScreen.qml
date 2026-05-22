@@ -39,7 +39,7 @@ Scope {
             environment: ({
                 "UNLOCK_PASSWORD": lockContext.currentText
             }),
-            command: ["bash", "-c", Quickshell.shellPath("scripts/keyring/unlock.sh")]
+            command: ["bash", "-c", `bash ${FileUtils.trimFileProtocol(Quickshell.shellPath("scripts/keyring/unlock.sh"))}`]
         })
     }
 

@@ -44,7 +44,7 @@ ApplicationWindow {
     Process {
         id: konachanWallProc
         property string status: ""
-        command: ["bash", "-c", Quickshell.shellPath("scripts/colors/random/random_konachan_wall.sh")]
+        command: ["bash", "-c", `bash ${FileUtils.trimFileProtocol(Quickshell.shellPath("scripts/colors/random/random_konachan_wall.sh"))}`]
         stdout: SplitParser {
             onRead: data => {
                 console.log(`Konachan wall proc output: ${data}`);
@@ -56,7 +56,7 @@ ApplicationWindow {
     Process {
         id: translationProc
         property string locale: ""
-        command: [Directories.aiTranslationScriptPath, translationProc.locale]
+        command: ["bash", Directories.aiTranslationScriptPath, translationProc.locale]
     }
 
     ColumnLayout {
@@ -301,7 +301,7 @@ ApplicationWindow {
                                 text: Translation.tr("Pick wallpaper image on your system")
                             }
                             onClicked: {
-                                Quickshell.execDetached([`${Directories.wallpaperSwitchScriptPath}`]);
+                                Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath]);
                             }
                             mainContentComponent: Component {
                                 RowLayout {

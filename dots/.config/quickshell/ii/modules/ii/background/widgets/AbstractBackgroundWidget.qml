@@ -73,7 +73,7 @@ AbstractWidget {
         property int contentHeight: 300
         property int horizontalPadding: 200
         property int verticalPadding: 200
-        command: [Quickshell.shellPath("scripts/images/least-busy-region-venv.sh") // Comments to force the formatter to break lines
+        command: ["bash", FileUtils.trimFileProtocol(Quickshell.shellPath("scripts/images/least-busy-region-venv.sh")) // Comments to force the formatter to break lines
             , "--screen-width", Math.round(root.scaledScreenWidth) //
             , "--screen-height", Math.round(root.scaledScreenHeight) //
             , "--width", contentWidth //
@@ -99,4 +99,3 @@ AbstractWidget {
         }
     }
 }
-

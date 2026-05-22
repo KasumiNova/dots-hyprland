@@ -60,7 +60,7 @@ Singleton {
                 tokenProc.environment.SERVICE_KEY_CONTENT = JSON.stringify(root.keyContent);
                 tokenProc.command = [ //
                     "bash", "-c" //
-                    , `${tokenForKeyScriptPath} "$SERVICE_KEY_CONTENT"`];
+                    , `bash ${tokenForKeyScriptPath} "$SERVICE_KEY_CONTENT"`];
             }), //
             [], // run token fetcher
             ((out) => {

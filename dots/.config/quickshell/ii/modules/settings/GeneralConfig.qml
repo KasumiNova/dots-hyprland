@@ -13,7 +13,7 @@ ContentPage {
     Process {
         id: translationProc
         property string locale: ""
-        command: [Directories.aiTranslationScriptPath, translationProc.locale]
+        command: ["bash", Directories.aiTranslationScriptPath, translationProc.locale]
     }
 
     ContentSection {

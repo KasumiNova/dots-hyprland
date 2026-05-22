@@ -41,7 +41,7 @@ Item {
             visible: Config.options.bar.utilButtons.showScreenRecord
             sourceComponent: CircleUtilButton {
                 Layout.alignment: Qt.AlignVCenter
-                onClicked: Quickshell.execDetached([Directories.recordScriptPath])
+                onClicked: Quickshell.execDetached(["bash", Directories.recordScriptPath])
                 MaterialSymbol {
                     horizontalAlignment: Qt.AlignHCenter
                     fill: 1
@@ -107,9 +107,9 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: event => {
                     if (Appearance.m3colors.darkmode) {
-                        Quickshell.execDetached(["bash", "-c", `${Directories.wallpaperSwitchScriptPath} --mode light --noswitch`])
+                        Quickshell.execDetached(["bash", "-c", `bash ${Directories.wallpaperSwitchScriptPath} --mode light --noswitch`])
                     } else {
-                        Quickshell.execDetached(["bash", "-c", `${Directories.wallpaperSwitchScriptPath} --mode dark --noswitch`])
+                        Quickshell.execDetached(["bash", "-c", `bash ${Directories.wallpaperSwitchScriptPath} --mode dark --noswitch`])
                     }
                 }
                 MaterialSymbol {

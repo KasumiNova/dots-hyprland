@@ -82,7 +82,10 @@ Singleton {
                 actions.push({
                     action: actionName,
                     execute: ((path) => (args) => {
-                        Quickshell.execDetached([path, ...(args ? args.split(" ") : [])]);
+                        const command = path.endsWith(".sh")
+                            ? ["bash", path, ...(args ? args.split(" ") : [])]
+                            : [path, ...(args ? args.split(" ") : [])];
+                        Quickshell.execDetached(command);
                     })(FileUtils.trimFileProtocol(filePath.toString()))
                 });
             }
@@ -102,25 +105,25 @@ Singleton {
         {
             action: "accentcolor",
             execute: args => {
-                Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--noswitch", "--color", ...(args != '' ? [`${args}`] : [])]);
+                Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath, "--noswitch", "--color", ...(args != '' ? [`${args}`] : [])]);
             }
         },
         {
             action: "dark",
             execute: () => {
-                Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
+                Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
             }
         },
         {
             action: "konachanwallpaper",
             execute: () => {
-                Quickshell.execDetached([Quickshell.shellPath("scripts/colors/random/random_konachan_wall.sh")]);
+                Quickshell.execDetached(["bash", FileUtils.trimFileProtocol(Quickshell.shellPath("scripts/colors/random/random_konachan_wall.sh"))]);
             }
         },
         {
             action: "light",
             execute: () => {
-                Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
+                Quickshell.execDetached(["bash", Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
             }
         },
         {
