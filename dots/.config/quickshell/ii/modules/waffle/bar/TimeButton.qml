@@ -50,6 +50,6 @@ BarButton {
     BarToolTip {
         id: tooltip
         extraVisibleCondition: root.shouldShowTooltip
-        text: `${Qt.locale().toString(DateTime.clock.date, "dddd, MMMM d, yyyy")}\n\n${Qt.locale().toString(DateTime.clock.date, "ddd hh:mm AP")}`
+        text: DateTime.tooltipDateTime
     }
 }
