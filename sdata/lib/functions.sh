@@ -173,6 +173,96 @@ function require_command() {
   fi
 }
 
+function normalize_git_url_for_compare() {
+  local url="$1"
+
+  url="${url#git+}"
+  url="${url%%#*}"
+  url="${url%/}"
+  url="${url%.git}"
+
+  echo "$url"
+}
+
+function cleanup_pkgbuild_vcs_source_cache() {
+  local pkgbuild_dir="${1:-.}"
+  local pkgbuild_path="${pkgbuild_dir}/PKGBUILD"
+
+  [[ -f "$pkgbuild_path" ]] || return 0
+
+  (
+    cd "$pkgbuild_dir" || return 1
+
+    unset source
+    # shellcheck disable=SC1091
+    source ./PKGBUILD
+    declare -p source >/dev/null 2>&1 || return 0
+
+    local entry source_spec source_name source_url expected_url cache_path remote_url cache_remote_url remote_path
+    for entry in "${source[@]}"; do
+      source_spec="${entry%%#*}"
+      source_name=""
+
+      if [[ "$source_spec" == *"::"* ]]; then
+        source_name="${source_spec%%::*}"
+        source_spec="${source_spec#*::}"
+      fi
+
+      [[ "$source_spec" == git+* ]] || continue
+
+      source_url="${source_spec#git+}"
+      if [[ -z "$source_name" ]]; then
+        source_name="${source_url##*/}"
+        source_name="${source_name%.git}"
+      fi
+
+      case "$source_name" in
+        ""|"."|".."|*/*)
+          log_warning "Skipping unsafe VCS source cache name: ${source_name}"
+          continue
+          ;;
+      esac
+
+      expected_url="$(normalize_git_url_for_compare "$source_url")"
+
+      cache_path="$source_name"
+      if [[ -e "$cache_path" ]]; then
+        remote_url="$(git -C "$cache_path" config --get remote.origin.url 2>/dev/null || true)"
+        if [[ -n "$remote_url" && "$(normalize_git_url_for_compare "$remote_url")" != "$expected_url" ]]; then
+          log_warning "Removing stale VCS source cache: ${pkgbuild_dir}/${cache_path}"
+          log_warning "  remote:   ${remote_url}"
+          log_warning "  expected: ${source_url}"
+          rm -rf -- "$cache_path"
+        fi
+      fi
+
+      cache_path="src/$source_name"
+      if [[ -e "$cache_path" ]]; then
+        remote_url="$(git -C "$cache_path" config --get remote.origin.url 2>/dev/null || true)"
+        [[ -n "$remote_url" ]] || continue
+
+        if [[ "$(normalize_git_url_for_compare "$remote_url")" == "$expected_url" ]]; then
+          continue
+        fi
+
+        if [[ "$remote_url" != *"://"* && "$remote_url" != *"@"* ]]; then
+          remote_path="$remote_url"
+          [[ "$remote_path" == /* ]] || remote_path="${cache_path}/${remote_path}"
+          cache_remote_url="$(git -C "$remote_path" config --get remote.origin.url 2>/dev/null || true)"
+          if [[ -n "$cache_remote_url" && "$(normalize_git_url_for_compare "$cache_remote_url")" == "$expected_url" ]]; then
+            continue
+          fi
+        fi
+
+        log_warning "Removing stale VCS source checkout: ${pkgbuild_dir}/${cache_path}"
+        log_warning "  remote:   ${remote_url}"
+        log_warning "  expected: ${source_url}"
+        rm -rf -- "$cache_path"
+      fi
+    done
+  )
+}
+
 # Enhanced: Sanitize file paths to prevent directory traversal
 function sanitize_path() {
   local path="$1"

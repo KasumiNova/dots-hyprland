@@ -79,6 +79,7 @@ install-local-pkgbuild() {
 
   source ./PKGBUILD
   x yay -S --sudoloop $installflags --asdeps "${depends[@]}"
+  x cleanup_pkgbuild_vcs_source_cache .
   # man makepkg:
   # -A, --ignorearch: Ignore a missing or incomplete arch field in the build script.
   # -s, --syncdeps: Install missing dependencies using pacman. When build-time or run-time dependencies are not found, pacman will try to resolve them.

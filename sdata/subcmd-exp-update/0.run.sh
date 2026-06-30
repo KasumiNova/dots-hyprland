@@ -671,6 +671,8 @@ build_packages() {
       continue
     }
 
+    cleanup_pkgbuild_vcs_source_cache .
+
     if makepkg -sCi --noconfirm; then
       log_success "Successfully built and installed $pkg_name"
       ((rebuilt_packages++)) || true
