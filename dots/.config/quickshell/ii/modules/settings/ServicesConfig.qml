@@ -125,6 +125,17 @@ ContentPage {
             }
         }
 
+        ConfigSwitch {
+            text: Translation.tr("Enable pinyin app search")
+            checked: Config.options.search.pinyin
+            onCheckedChanged: {
+                Config.options.search.pinyin = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Allows Chinese app names to be found by full pinyin or initials")
+            }
+        }
+
         ContentSubsection {
             title: Translation.tr("Prefixes")
             ConfigRow {

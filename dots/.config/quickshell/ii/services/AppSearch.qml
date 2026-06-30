@@ -3,6 +3,7 @@ pragma Singleton
 import qs.modules.common
 import qs.modules.common.functions
 import Quickshell
+import "../modules/common/functions/AppSearchPinyin.js" as AppSearchPinyin
 
 /**
  * - Eases fuzzy searching for applications by name
@@ -11,6 +12,7 @@ import Quickshell
 Singleton {
     id: root
     property bool sloppySearch: Config.options?.search.sloppy ?? false
+    property bool pinyinSearch: Config.options?.search.pinyin ?? false
     property real scoreThreshold: 0.2
     property var substitutions: ({
         "code-url-handler": "visual-studio-code",
@@ -49,7 +51,7 @@ Singleton {
     )
     
     readonly property var preppedNames: list.map(a => ({
-        name: Fuzzy.prepare(`${a.name} `),
+        name: Fuzzy.prepare(`${AppSearchPinyin.searchTextForEntry(a, root.pinyinSearch)} `),
         entry: a
     }))
 
@@ -62,7 +64,7 @@ Singleton {
         if (root.sloppySearch) {
             const results = list.map(obj => ({
                 entry: obj,
-                score: Levendist.computeScore(obj.name.toLowerCase(), search.toLowerCase())
+                score: Levendist.computeScore(AppSearchPinyin.searchTextForEntry(obj, root.pinyinSearch).toLowerCase(), search.toLowerCase())
             })).filter(item => item.score > root.scoreThreshold)
                 .sort((a, b) => b.score - a.score)
             return results
