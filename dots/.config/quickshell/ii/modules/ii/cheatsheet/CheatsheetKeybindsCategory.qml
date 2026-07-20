@@ -63,8 +63,8 @@ Column {
     property var keyBlacklist: ["SUPER_L", "SUPER_R"]
     property var keySubstitutions: Object.assign({
         "Super": "",
-        "mouse_up": "Scroll ↓",    // ikr, weird
-        "mouse_down": "Scroll ↑",  // trust me bro
+        "mouse_up": "Scroll ↑",
+        "mouse_down": "Scroll ↓",
         "mouse:272": "LMB",
         "mouse:273": "RMB",
         "mouse:275": "MouseBack",
