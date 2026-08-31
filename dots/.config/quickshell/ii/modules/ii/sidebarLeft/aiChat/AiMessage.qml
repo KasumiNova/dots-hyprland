@@ -13,10 +13,6 @@ Rectangle {
     property var messageData
     property var messageInputField
 
-    // Guard: skip rendering if messageData is null/undefined
-    visible: root.messageData !== null && root.messageData !== undefined
-    enabled: visible
-
     property real messagePadding: 7
     property real contentSpacing: 3
 
@@ -24,31 +20,7 @@ Rectangle {
     property bool renderMarkdown: true
     property bool editing: false
 
-    // NOTE: Don't use list<var> binding here.
-    // list properties are not reliably re-evaluated as messageData.content streams in.
-    // Use a var + explicit recomputation so unfinished code/think blocks grow live.
-    property var messageBlocks: ([])
-
-    function recomputeMessageBlocks() {
-        const content = root.messageData?.content ?? "";
-        root.messageBlocks = StringUtils.splitMarkdownBlocks(content);
-    }
-
-    onMessageDataChanged: recomputeMessageBlocks()
-
-    Connections {
-        target: root.messageData ?? null
-        enabled: root.messageData !== null
-        function onContentChanged() {
-            root.recomputeMessageBlocks();
-        }
-        function onToolCallsChanged() {
-            // Force update when tool calls change
-            root.messageDataChanged();
-        }
-    }
-
-    Component.onCompleted: recomputeMessageBlocks()
+    property list<var> messageBlocks: StringUtils.splitMarkdownBlocks(root.messageData?.content)
 
     anchors.left: parent?.left
     anchors.right: parent?.right
@@ -138,17 +110,16 @@ Rectangle {
                         Item {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.fillHeight: true
-                            // Always show model/role icon, never tool icon in header
                             implicitWidth: messageData?.role == 'assistant' ? modelIcon.width : roleIcon.implicitWidth
                             implicitHeight: messageData?.role == 'assistant' ? modelIcon.height : roleIcon.implicitHeight
 
                             CustomIcon {
                                 id: modelIcon
                                 anchors.centerIn: parent
-                                visible: messageData?.role == 'assistant' && (Ai.models[messageData?.model]?.icon ?? false)
+                                visible: messageData?.role == 'assistant' && Ai.models[messageData?.model].icon
                                 width: Appearance.font.pixelSize.large
                                 height: Appearance.font.pixelSize.large
-                                source: messageData?.role == 'assistant' ? (Ai.models[messageData?.model]?.icon ?? "") :
+                                source: messageData?.role == 'assistant' ? Ai.models[messageData?.model].icon :
                                     messageData?.role == 'user' ? 'linux-symbolic' : 'desktop-symbolic'
 
                                 colorize: true
@@ -158,7 +129,7 @@ Rectangle {
                             MaterialSymbol {
                                 id: roleIcon
                                 anchors.centerIn: parent
-                                visible: !parent.isToolMessage && !modelIcon.visible
+                                visible: !modelIcon.visible
                                 iconSize: Appearance.font.pixelSize.larger
                                 color: Appearance.m3colors.m3onSecondaryContainer
                                 text: messageData?.role == 'user' ? 'person' : 
@@ -175,8 +146,7 @@ Rectangle {
                             elide: Text.ElideRight
                             font.pixelSize: Appearance.font.pixelSize.normal
                             color: Appearance.m3colors.m3onSecondaryContainer
-                            // Always show model/user name - tool info is in the tool blocks
-                            text: messageData?.role == 'assistant' ? (Ai.models[messageData?.model]?.name ?? "") :
+                            text: messageData?.role == 'assistant' ? Ai.models[messageData?.model].name :
                                 (messageData?.role == 'user' && SystemInfo.username) ? SystemInfo.username :
                                 Translation.tr("Interface")
                         }
@@ -218,22 +188,6 @@ Rectangle {
                         
                         StyledToolTip {
                             text: Translation.tr("Regenerate")
-                        }
-                    }
-
-                    AiMessageControlButton {
-                        id: rollbackButton
-                        buttonIcon: "history"
-                        // Show for user messages to get a new response from here
-                        // Also show for messages that have subsequent messages (not the last message)
-                        visible: messageData?.role === 'user' && root.messageIndex < Ai.messageIDs.length - 1
-
-                        onClicked: {
-                            Ai.rollbackAndRegenerate(root.messageIndex)
-                        }
-                        
-                        StyledToolTip {
-                            text: Translation.tr("Rollback & regenerate from here")
                         }
                     }
 
@@ -302,20 +256,16 @@ Rectangle {
 
         Loader {
             Layout.fillWidth: true
-            active: (root.messageData?.localFilePath ?? "").length > 0
+            active: root.messageData?.localFilePath && root.messageData?.localFilePath.length > 0
             sourceComponent: AttachedFileIndicator {
-                filePath: root.messageData?.localFilePath ?? ""
+                filePath: root.messageData?.localFilePath
                 canRemove: false
             }
         }
 
         ColumnLayout { // Message content
             id: messageContentColumnLayout
-            // Add vertical spacing between rich blocks (think/tool/code/text)
-            // so the timeline reads cleanly.
-            spacing: 6
-            // Always show message content - tool block is displayed separately above
-            visible: root.messageBlocks.length > 0
+            spacing: 0
 
             Item {
                 Layout.fillWidth: true
@@ -329,7 +279,7 @@ Rectangle {
                 FadeLoader {
                     id: loadingIndicatorLoader
                     anchors.centerIn: parent
-                    shown: (root.messageBlocks.length < 1) && (root.messageData != null) && (root.messageData?.done === false) && !toolBlocksRepeater.count
+                    shown: (root.messageBlocks.length < 1) && (!root.messageData.done)
                     sourceComponent: MaterialLoadingIndicator {
                         loading: true
                     }
@@ -359,8 +309,6 @@ Rectangle {
                         messageData: root.messageData
                         done: root.messageData?.done ?? false
                         completed: modelData.completed ?? false
-                        // Don't pass toolCalls here - they are now shown inline via tool markers
-                        toolCalls: []
                     } }
                     DelegateChoice { roleValue: "text"; MessageTextBlock {
                         editing: root.editing
@@ -369,64 +317,8 @@ Rectangle {
                         segmentContent: modelData.content
                         messageData: root.messageData
                         done: root.messageData?.done ?? false
-                        forceDisableChunkSplitting: (root.messageData?.content ?? "").includes("```")
+                        forceDisableChunkSplitting: root.messageData?.content.includes("```") ?? true
                     } }
-                    DelegateChoice { roleValue: "tool"; MessageToolBlock {
-                        // Find the tool call data by ID
-                        property string __toolId: modelData.toolId ?? ""
-                        property var matchedToolCall: {
-                            const toolId = __toolId;
-                            const calls = root.messageData?.toolCalls ?? [];
-                            return calls.find(tc => tc.id === toolId) ?? null;
-                        }
-                        Layout.fillWidth: true
-                        toolCallData: matchedToolCall ?? ({
-                            id: __toolId,
-                            name: root.messageData?.functionName || "tool",
-                            args: {},
-                            status: "completed",
-                            result: {
-                                success: false,
-                                output: "【历史记录】该工具调用的详细信息在保存的会话里缺失（通常是旧会话：当时还没把 toolCalls 持久化进后端数据库）。"
-                            }
-                        })
-                        messageData: root.messageData
-                        visible: (__toolId.length > 0)
-                    } }
-                }
-            }
-        }
-
-        // Tool calls - only displayed when there are tool calls without position markers
-        ColumnLayout {
-            id: toolBlocksColumn
-            Layout.fillWidth: true
-            Layout.topMargin: visible ? 8 : 0
-            spacing: 6
-            // Only show tool calls that don't have inline position markers
-            visible: {
-                const allToolCalls = root.messageData?.toolCalls ?? [];
-                const markedToolIds = root.messageBlocks.filter(b => b.type === "tool").map(b => b.toolId);
-                const unmarkedCalls = allToolCalls.filter(tc => !markedToolIds.includes(tc.id));
-                return unmarkedCalls.length > 0;
-            }
-
-            Repeater {
-                id: toolBlocksRepeater
-                model: ScriptModel {
-                    // Only show tool calls without inline markers
-                    values: {
-                        const allToolCalls = root.messageData?.toolCalls ?? [];
-                        const markedToolIds = root.messageBlocks.filter(b => b.type === "tool").map(b => b.toolId);
-                        return allToolCalls.filter(tc => !markedToolIds.includes(tc.id));
-                    }
-                }
-                delegate: MessageToolBlock {
-                    required property var modelData
-                    required property int index
-                    Layout.fillWidth: true
-                    toolCallData: modelData
-                    messageData: root.messageData
                 }
             }
         }

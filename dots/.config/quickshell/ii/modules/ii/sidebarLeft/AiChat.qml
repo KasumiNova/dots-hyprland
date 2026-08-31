@@ -7,191 +7,38 @@ import qs.modules.ii.sidebarLeft.aiChat
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Window
+import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Io
 
 Item {
     id: root
-    // Guard against teardown races during reload.
-    property bool _destroying: false
     property real padding: 4
     property var inputField: messageInputField
     property string commandPrefix: "/"
-
-    // Optional: a parent item above this page (e.g. SidebarLeftContent) used to host dialogs.
-    // This avoids being clipped by the SwipeView page container.
-    property Item dialogOverlayParent: null
-
-    property bool showRequestLog: false
-
-    function fmtTokensCompact(n) {
-        const v = Number(n);
-        if (!isFinite(v) || v < 0) return "-";
-
-        function fmtScaled(x, unit) {
-            if (x < 10) return `${x.toFixed(1)}${unit}`;
-            return `${Math.round(x)}${unit}`;
-        }
-
-        if (v >= 1000000) return fmtScaled(v / 1000000, "M");
-        if (v >= 1000) return fmtScaled(v / 1000, "k");
-        return `${Math.round(v)}`;
-    }
-
-    component TokenRing: Item {
-        id: ring
-        property real progress: 0
-        property color colBg: Appearance.colors.colOutlineVariant
-        property color colFg: Appearance.colors.colPrimary
-        implicitWidth: 22
-        implicitHeight: 22
-
-        Canvas {
-            id: canvas
-            anchors.fill: parent
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                const w = width;
-                const h = height;
-                const cx = w/2;
-                const cy = h/2;
-                const r = Math.min(w, h)/2 - 2;
-                const start = -Math.PI/2;
-                const p = Math.max(0, Math.min(1, ring.progress || 0));
-
-                ctx.lineWidth = 2;
-                ctx.lineCap = "round";
-
-                // bg circle
-                ctx.strokeStyle = ring.colBg;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI*2);
-                ctx.stroke();
-
-                // fg arc
-                if (p > 0) {
-                    ctx.strokeStyle = ring.colFg;
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, r, start, start + Math.PI*2*p);
-                    ctx.stroke();
-                }
-            }
-        }
-
-        onProgressChanged: canvas.requestPaint()
-        Component.onCompleted: canvas.requestPaint()
-    }
-
-    // Prevent input/suggestions from visually overflowing the page bounds.
-    clip: true
-
-    // Visual API settings dialog (OpenAI-compatible base URL + API key)
-    property bool showApiSettingsDialog: false
-    property string apiBaseUrlDraft: ""
-    property string apiKeyDraft: ""
-    property bool apiKeyVisible: false
-
-    // When a modal overlay is open, never steal focus back to the chat input.
-    // Chat/session manager is also a modal.
-    property bool showChatManagerDialog: false
-    property string newChatNameDraft: ""
-    property int __pendingDeleteChatId: -1
-    property int __editingChatId: -1
-    property string __editingChatNameDraft: ""
-    readonly property bool modalOpen: root.showApiSettingsDialog || root.showRequestLog || root.showChatManagerDialog
-
-    function openChatManager() {
-        // Always refresh list when opening.
-        Ai.refreshChatList();
-        root.__pendingDeleteChatId = -1;
-        root.newChatNameDraft = "";
-        root.showChatManagerDialog = true;
-
-        Qt.callLater(() => {
-            if (root._destroying) return;
-            if (!root.showChatManagerDialog) return;
-            try { newChatNameField.forceActiveFocus(); } catch (e) {}
-        });
-    }
-
-    function openApiSettings() {
-        // Best-effort: preload keyring so the dialog can show existing values.
-        if (!KeyringStorage.loaded) KeyringStorage.fetchKeyringData();
-        root.apiBaseUrlDraft = Ai.getOpenAiBaseUrl();
-        root.apiKeyDraft = Ai.openaiApiKey ?? "";
-        root.apiKeyVisible = false;
-        root.showApiSettingsDialog = true;
-
-        // Ensure focus moves into the dialog, otherwise Ctrl+V and other key events
-        // can bubble up and get intercepted by the chat input.
-        Qt.callLater(() => {
-            if (root._destroying) return;
-            if (!root.showApiSettingsDialog) return;
-            try {
-                apiBaseUrlField.forceActiveFocus();
-            } catch (e) {
-                // Fallback: focus API key field if Base URL field is not available.
-                try { apiKeyField.forceActiveFocus(); } catch (e2) {}
-            }
-        });
-    }
-
-    Component.onDestruction: {
-        // Mark as destroying first so any in-flight callbacks can bail out.
-        root._destroying = true;
-        // On reload, this page can be destroyed while subprocesses/dialog loaders are active.
-        // Stop them explicitly to reduce teardown races inside QS/Qt.
-        try { root.showApiSettingsDialog = false; } catch (e) {}
-        try { root.showRequestLog = false; } catch (e) {}
-        try { if (decodeImageAndAttachProc.running) decodeImageAndAttachProc.running = false; } catch (e) {}
-    }
-
-    // Set by parent sidebar content to match the actual output scale (e.g. Hyprland monitor.scale)
-    property real outputScale: 1
-
-    readonly property real __dpr: (Screen.devicePixelRatio || 1)
-    readonly property bool __fractionalScale: Math.abs(__dpr - Math.round(__dpr)) > 0.001
 
     property var suggestionQuery: ""
     property var suggestionList: []
 
     onFocusChanged: focus => {
         if (focus) {
-            if (!root.modalOpen) root.inputField.forceActiveFocus();
+            root.inputField.forceActiveFocus();
         }
     }
 
     Keys.onPressed: event => {
-        // If a modal dialog is open, do not redirect key events to the chat input.
-        // This fixes paste/typing being stolen by the background input field.
-        if (root.modalOpen) {
-            event.accepted = false;
-            return;
-        }
+        messageInputField.forceActiveFocus();
         if (event.modifiers === Qt.NoModifier) {
             if (event.key === Qt.Key_PageUp) {
-                messageInputField.forceActiveFocus();
                 messageListView.contentY = Math.max(0, messageListView.contentY - messageListView.height / 2);
                 event.accepted = true;
             } else if (event.key === Qt.Key_PageDown) {
-                messageInputField.forceActiveFocus();
                 messageListView.contentY = Math.min(messageListView.contentHeight - messageListView.height / 2, messageListView.contentY + messageListView.height / 2);
                 event.accepted = true;
             }
         }
         if ((event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier) && event.key === Qt.Key_O) {
-            messageInputField.forceActiveFocus();
             Ai.clearMessages();
-        }
-        // Ctrl+Z to undo delete (only when input field is empty to not interfere with text editing)
-        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Z && messageInputField.text.length === 0) {
-            if (Ai.canUndoDelete) {
-                messageInputField.forceActiveFocus();
-                Ai.undoLastDelete();
-                event.accepted = true;
-            }
         }
     }
 
@@ -250,31 +97,26 @@ Item {
         },
         {
             name: "save",
-            description: Translation.tr("Rename current chat"),
+            description: Translation.tr("Save chat"),
             execute: args => {
-                const joinedArgs = args.join(" ").trim();
-                if (joinedArgs.length === 0) {
+                const joinedArgs = args.join(" ");
+                if (joinedArgs.trim().length == 0) {
                     Ai.addMessage(Translation.tr("Usage: %1save CHAT_NAME").arg(root.commandPrefix), Ai.interfaceRole);
                     return;
                 }
-                Ai.renameCurrentChat(joinedArgs);
+                Ai.saveChat(joinedArgs);
             }
         },
         {
-            name: "chats",
-            description: Translation.tr("List all chats"),
-            execute: () => {
-                Ai.refreshChatList();
-                let msg = Translation.tr("**Chats:**\n");
-                if (Ai.chatList.length === 0) {
-                    msg += Translation.tr("No chats found.");
-                } else {
-                    for (const chat of Ai.chatList) {
-                        const current = (chat.id === Ai.currentChatId) ? " ← current" : "";
-                        msg += `- **${chat.name || "Unnamed"}** (ID: ${chat.id})${current}\n`;
-                    }
+            name: "load",
+            description: Translation.tr("Load chat"),
+            execute: args => {
+                const joinedArgs = args.join(" ");
+                if (joinedArgs.trim().length == 0) {
+                    Ai.addMessage(Translation.tr("Usage: %1load CHAT_NAME").arg(root.commandPrefix), Ai.interfaceRole);
+                    return;
                 }
-                Ai.addMessage(msg, Ai.interfaceRole);
+                Ai.loadChat(joinedArgs);
             }
         },
         {
@@ -369,6 +211,9 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         } else {
             Ai.sendUserMessage(inputText);
         }
+
+        // Always scroll to bottom when user sends a message
+        messageListView.positionViewAtEnd();
     }
 
     Process {
@@ -381,7 +226,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
             decodeImageAndAttachProc.exec(["bash", "-c", `[ -f ${imageDecodeFilePath} ] || echo '${StringUtils.shellSingleQuoteEscape(entry)}' | ${Cliphist.cliphistBinary} decode > '${imageDecodeFilePath}'`]);
         }
         onExited: (exitCode, exitStatus) => {
-            if (root._destroying) return;
             if (exitCode === 0) {
                 Ai.attachFile(imageDecodeFilePath);
             } else {
@@ -422,8 +266,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
         }
     }
 
-
-
     component StatusSeparator: Rectangle {
         implicitWidth: 4
         implicitHeight: 4
@@ -441,13 +283,16 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
 
         Item {
             // Messages
-            id: messagesContainer
             Layout.fillWidth: true
             Layout.fillHeight: true
-
-            clip: true
-            // layer disabled to fix fractional scaling blur
-            layer.enabled: false
+            layer.enabled: true
+            layer.effect: OpacityMask {
+                maskSource: Rectangle {
+                    width: swipeView.width
+                    height: swipeView.height
+                    radius: Appearance.rounding.small
+                }
+            }
 
             StyledRectangularShadow {
                 z: 1
@@ -478,131 +323,25 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     anchors.centerIn: parent
                     spacing: 10
 
-                    // Animated mirrors for token values (so UI can smoothly transition).
-                    // requestAnim: per-request usage (drives ctx window)
-                    // sessionAnim: session totals (shown in token status item)
-                    QtObject {
-                        id: requestAnim
-                        property real input: Ai.requestTokenCount.input
-                        property real output: Ai.requestTokenCount.output
-                        property real total: Ai.requestTokenCount.total
-
-                        Behavior on input {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-                        Behavior on output {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-                        Behavior on total {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
+                    StatusItem {
+                        icon: Ai.currentModelHasApiKey ? "key" : "key_off"
+                        statusText: ""
+                        description: Ai.currentModelHasApiKey ? Translation.tr("API key is set\nChange with /key YOUR_API_KEY") : Translation.tr("No API key\nSet it with /key YOUR_API_KEY")
                     }
-
-                    QtObject {
-                        id: sessionAnim
-                        property real input: Ai.tokenCount.input
-                        property real output: Ai.tokenCount.output
-                        property real total: Ai.tokenCount.total
-
-                        Behavior on input {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-                        Behavior on output {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-                        Behavior on total {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                        }
-                    }
-
-                    // (ctx window indicator moved to bottom input bar)
-
-                    // Chat/session switcher
-                    MouseArea {
-                        id: chatSwitcher
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        enabled: !Ai.isGenerating
-                        implicitHeight: Math.max(22, chatRow.implicitHeight)
-                        implicitWidth: chatRow.implicitWidth
-
-                        onClicked: root.openChatManager()
-
-                        RowLayout {
-                            id: chatRow
-                            spacing: 6
-                            Layout.alignment: Qt.AlignVCenter
-
-                            MaterialSymbol {
-                                Layout.alignment: Qt.AlignVCenter
-                                text: "forum"
-                                iconSize: Appearance.font.pixelSize.huge
-                                color: Appearance.colors.colSubtext
-                            }
-
-                            StyledText {
-                                Layout.alignment: Qt.AlignVCenter
-                                font.pixelSize: Appearance.font.pixelSize.small
-                                color: Appearance.colors.colSubtext
-                                elide: Text.ElideRight
-                                // Keep it compact; full name in tooltip.
-                                text: {
-                                    const cid = Ai.currentChatId;
-                                    const name = (Ai.currentChatName ?? "").trim();
-                                    if (cid < 0) return Translation.tr("No chat");
-                                    if (name.length > 0) return name;
-                                    return `#${cid}`;
-                                }
-                                maximumLineCount: 1
-                                width: Math.min(180, implicitWidth)
-                            }
-                        }
-
-                        StyledToolTip {
-                            text: {
-                                if (Ai.isGenerating) return Translation.tr("Can't switch chats while generating");
-                                const cid = Ai.currentChatId;
-                                const name = (Ai.currentChatName ?? "").trim();
-                                if (cid < 0) return Translation.tr("Chat sessions");
-                                return Translation.tr("Chat sessions\nCurrent: %1 (%2)")
-                                    .arg(name.length > 0 ? name : Translation.tr("Unnamed"))
-                                    .arg(`#${cid}`);
-                            }
-                            extraVisibleCondition: false
-                            alternativeVisibleCondition: chatSwitcher.containsMouse
-                        }
-                    }
-
                     StatusSeparator {}
                     StatusItem {
                         icon: "device_thermostat"
                         statusText: Ai.temperature.toFixed(1)
                         description: Translation.tr("Temperature\nChange with /temp VALUE")
                     }
-                    StatusItem {
-                        visible: true
-                        icon: "token"
-                        statusText: {
-                            if (sessionAnim.total < 0) return "I: - / O: -";
-                            const i = root.fmtTokensCompact(sessionAnim.input);
-                            const o = root.fmtTokensCompact(sessionAnim.output);
-                            return `I: ${i} / O: ${o}`;
-                        }
-                        description: {
-                            if (Ai.tokenCount.total < 0) return Translation.tr("Token usage unknown (provider did not return usage yet)");
-                            return Translation.tr("Token usage (Input/Output/Total)\nInput: %1\nOutput: %2\nTotal: %3")
-                                .arg(Ai.tokenCount.input)
-                                .arg(Ai.tokenCount.output)
-                                .arg(Ai.tokenCount.total);
-                        }
+                    StatusSeparator {
+                        visible: Ai.tokenCount.total > 0
                     }
-
-                    StatusSeparator {}
                     StatusItem {
-                        icon: "bug_report"
-                        statusText: ""
-                        description: Translation.tr("Request log\nView the full payload sent to the server")
-                        onClicked: root.showRequestLog = true
+                        visible: Ai.tokenCount.total > 0
+                        icon: "token"
+                        statusText: Ai.tokenCount.total
+                        description: Translation.tr("Total token count\nInput: %1\nOutput: %2").arg(Ai.tokenCount.input).arg(Ai.tokenCount.output)
                     }
                 }
             }
@@ -619,14 +358,21 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                 anchors.fill: parent
                 spacing: 10
                 popin: false
-                // Disable smooth scrolling animation to keep scroll feel snappy.
-                animateScroll: false
                 topMargin: statusBg.implicitHeight + statusBg.anchors.topMargin * 2
 
                 touchpadScrollFactor: Config.options.interactions.scrolling.touchpadScrollFactor * 1.4
                 mouseScrollFactor: Config.options.interactions.scrolling.mouseScrollFactor * 1.4
 
                 property int lastResponseLength: 0
+                // onContentHeightChanged: {
+                //     if (atYEnd)
+                //         Qt.callLater(positionViewAtEnd);
+                // }
+                // onCountChanged: {
+                //     // Auto-scroll when new messages are added
+                //     if (atYEnd)
+                //         Qt.callLater(positionViewAtEnd);
+                // }
 
                 add: null // Prevent function calls from being janky
 
@@ -640,9 +386,10 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     required property var modelData
                     required property int index
                     messageIndex: index
-                    messageData: Ai.messageByID[modelData] ?? null
+                    messageData: {
+                        Ai.messageByID[modelData];
+                    }
                     messageInputField: root.inputField
-                    visible: messageData !== null
                 }
             }
 
@@ -728,18 +475,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
             Layout.fillWidth: true
             radius: Appearance.rounding.normal - root.padding
             color: Appearance.colors.colLayer2
-            implicitHeight: Math.max(
-                inputFieldRowLayout.implicitHeight
-                    + inputFieldRowLayout.anchors.topMargin
-                    + commandButtonsRow.implicitHeight
-                    + commandButtonsRow.anchors.bottomMargin
-                    + spacing,
-                45
-            ) + (
-                attachedFileIndicator.visible
-                    ? (attachedFileIndicator.implicitHeight + spacing + attachedFileIndicator.anchors.topMargin)
-                    : 0
-            )
+            implicitHeight: Math.max(inputFieldRowLayout.implicitHeight + inputFieldRowLayout.anchors.topMargin + commandButtonsRow.implicitHeight + commandButtonsRow.anchors.bottomMargin + spacing, 45) + (attachedFileIndicator.implicitHeight + spacing + attachedFileIndicator.anchors.topMargin)
             clip: true
 
             Behavior on implicitHeight {
@@ -916,15 +652,10 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                                     messageInputField.insert(messageInputField.cursorPosition, "\n");
                                     event.accepted = true;
                                 } else {
-                                    // If the model is currently generating, don't send a new message.
-                                    // Let Enter behave like newline so users can keep drafting.
-                                    if (Ai.isGenerating) {
-                                        messageInputField.insert(messageInputField.cursorPosition, "\n");
-                                    } else {
-                                        const inputText = messageInputField.text;
-                                        messageInputField.clear();
-                                        root.handleInput(inputText);
-                                    }
+                                    // Accept text
+                                    const inputText = messageInputField.text;
+                                    messageInputField.clear();
+                                    root.handleInput(inputText);
                                     event.accepted = true;
                                 }
                             } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
@@ -956,30 +687,11 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                                 if (Ai.pendingFilePath.length > 0) {
                                     Ai.attachFile("");
                                     event.accepted = true;
-                                } else if (Ai.isGenerating) {
-                                    Ai.stopGenerating();
-                                    event.accepted = true;
                                 } else {
                                     event.accepted = false;
                                 }
                             }
                         }
-                    }
-                }
-
-                // Always-visible (while generating) activity indicator at the tail of the input box.
-                BusyIndicator {
-                    id: generatingIndicator
-                    Layout.alignment: Qt.AlignTop
-                    Layout.rightMargin: 6
-                    implicitWidth: 18
-                    implicitHeight: 18
-                    running: Ai.isGenerating
-                    visible: opacity > 0
-                    opacity: Ai.isGenerating ? 1 : 0
-
-                    Behavior on opacity {
-                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
                     }
                 }
                 RippleButton { // Send button
@@ -989,22 +701,13 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     implicitWidth: 40
                     implicitHeight: 40
                     buttonRadius: Appearance.rounding.small
-                    enabled: Ai.isGenerating || messageInputField.text.length > 0
-                    toggled: Ai.isGenerating ? true : enabled
-
-                    // Make the stop state visually distinct.
-                    colBackgroundToggled: Ai.isGenerating ? Appearance.colors.colErrorContainer : Appearance.colors.colPrimary
-                    colBackgroundToggledHover: Ai.isGenerating ? Appearance.colors.colErrorContainerHover : Appearance.colors.colPrimaryHover
-                    colRippleToggled: Ai.isGenerating ? Appearance.colors.colErrorContainerActive : Appearance.colors.colPrimaryActive
+                    enabled: messageInputField.text.length > 0
+                    toggled: enabled
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: sendButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: {
-                            if (Ai.isGenerating) {
-                                Ai.stopGenerating();
-                                return;
-                            }
                             const inputText = messageInputField.text;
                             root.handleInput(inputText);
                             messageInputField.clear();
@@ -1015,10 +718,8 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         anchors.centerIn: parent
                         horizontalAlignment: Text.AlignHCenter
                         iconSize: 22
-                        color: sendButton.enabled
-                            ? (Ai.isGenerating ? Appearance.colors.colOnErrorContainer : Appearance.m3colors.m3onPrimary)
-                            : Appearance.colors.colOnLayer2Disabled
-                        text: Ai.isGenerating ? "stop" : "arrow_upward"
+                        color: sendButton.enabled ? Appearance.m3colors.m3onPrimary : Appearance.colors.colOnLayer2Disabled
+                        text: "arrow_upward"
                     }
                 }
             }
@@ -1059,131 +760,8 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     tooltipText: Translation.tr("Current tool: %1\nSet it with %2tool TOOL").arg(Ai.currentTool).arg(root.commandPrefix)
                 }
 
-                RippleButton {
-                    id: apiSettingsButton
-                    implicitWidth: 30
-                    implicitHeight: 30
-                    buttonRadius: Appearance.rounding.small
-                    padding: 0
-                    colBackground: Appearance.colors.colLayer2
-                    colBackgroundHover: Appearance.colors.colLayer2Hover
-                    colRipple: Appearance.colors.colLayer2Active
-
-                    MouseArea {
-                        id: apiSettingsButtonMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.openApiSettings()
-                    }
-
-                    contentItem: MaterialSymbol {
-                        anchors.fill: parent
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        iconSize: Appearance.font.pixelSize.normal
-                        color: Appearance.m3colors.m3onSurface
-                        text: "settings"
-                    }
-
-                    StyledToolTip {
-                        extraVisibleCondition: false
-                        alternativeVisibleCondition: apiSettingsButtonMouseArea.containsMouse
-                        text: Translation.tr("API settings (Base URL + API Key)")
-                    }
-                }
-
-                // Undo delete button
-                RippleButton {
-                    id: undoDeleteButton
-                    visible: Ai.canUndoDelete
-                    implicitWidth: 30
-                    implicitHeight: 30
-                    buttonRadius: Appearance.rounding.small
-                    padding: 0
-                    colBackground: Appearance.colors.colLayer2
-                    colBackgroundHover: Appearance.colors.colLayer2Hover
-                    colRipple: Appearance.colors.colLayer2Active
-
-                    MouseArea {
-                        id: undoDeleteButtonMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: Ai.undoLastDelete()
-                    }
-
-                    contentItem: MaterialSymbol {
-                        anchors.centerIn: parent
-                        iconSize: Appearance.font.pixelSize.normal
-                        color: Appearance.m3colors.m3onSurface
-                        text: "undo"
-                    }
-
-                    StyledToolTip {
-                        extraVisibleCondition: false
-                        alternativeVisibleCondition: undoDeleteButtonMouseArea.containsMouse
-                        text: Translation.tr("Undo delete (Ctrl+Z)")
-                    }
-                }
-
                 Item {
                     Layout.fillWidth: true
-                }
-
-                // Context window indicator (moved from top status bar)
-                MouseArea {
-                    id: ctxWindowItem
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    enabled: true
-                    implicitHeight: Math.max(22, ctxRow.implicitHeight)
-                    implicitWidth: ctxRow.implicitWidth
-                    Layout.alignment: Qt.AlignVCenter
-
-                    // Prefer prompt tokens (input) as a context-window proxy.
-                    property int used: Math.round(requestAnim.input)
-                    property int limit: (Ai.models?.[Ai.currentModelId]?.context_length ?? 0)
-                    property real progressTarget: (limit > 0 && used >= 0) ? Math.min(1, used / limit) : 0
-                    property real progress: progressTarget
-
-                    Behavior on progress {
-                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-                    }
-
-                    RowLayout {
-                        id: ctxRow
-                        spacing: 6
-                        Layout.alignment: Qt.AlignVCenter
-                        TokenRing {
-                            progress: ctxWindowItem.progress
-                        }
-                        StyledText {
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            color: Appearance.colors.colSubtext
-                            Layout.alignment: Qt.AlignVCenter
-                            text: {
-                                if (ctxWindowItem.limit <= 0) return "-";
-                                if (ctxWindowItem.used < 0) return `? / ${root.fmtTokensCompact(ctxWindowItem.limit)}`;
-                                return `${root.fmtTokensCompact(ctxWindowItem.used)} / ${root.fmtTokensCompact(ctxWindowItem.limit)}`;
-                            }
-                        }
-                    }
-
-                    StyledToolTip {
-                        text: {
-                            const used = ctxWindowItem.used;
-                            const limit = ctxWindowItem.limit;
-                            if (limit <= 0) return Translation.tr("Context window: unknown");
-                            if (used < 0) return Translation.tr("Context window\n? / %1 tokens").arg(limit);
-                            return Translation.tr("Context window (prompt tokens)\n%1 / %2 tokens (%3%)")
-                                .arg(used)
-                                .arg(limit)
-                                .arg(Math.round(ctxWindowItem.progress * 100));
-                        }
-                        extraVisibleCondition: false
-                        alternativeVisibleCondition: ctxWindowItem.containsMouse
-                    }
                 }
 
                 ButtonGroup {
@@ -1211,466 +789,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         }
                     }
                 }
-            }
-        }
-    }
-
-    // If keyring finishes loading while dialog is open, populate the draft (if still empty)
-    Connections {
-        target: KeyringStorage
-        function onLoadedChanged() {
-            if (root._destroying) return;
-            if (!root.showApiSettingsDialog) return;
-            if ((root.apiKeyDraft ?? "").length === 0) {
-                root.apiKeyDraft = Ai.openaiApiKey ?? "";
-            }
-        }
-    }
-
-    WindowDialog {
-        id: apiSettingsDialog
-        // Avoid complex parent binding; just use root. dialogOverlayParent causes teardown issues.
-        parent: root
-        anchors.fill: parent
-        z: 9999
-        show: root.showApiSettingsDialog
-        // Tune size: narrower (-15%) and a bit taller for comfortable spacing.
-        backgroundWidth: 442
-        backgroundHeight: 380
-        onDismiss: root.showApiSettingsDialog = false
-
-        onShowChanged: {
-            if (!show) return;
-            Qt.callLater(() => {
-                if (root._destroying) return;
-                if (!root.showApiSettingsDialog) return;
-                try { apiBaseUrlField.forceActiveFocus(); } catch (e) {}
-            });
-        }
-
-        WindowDialogTitle {
-            text: Translation.tr("API settings")
-        }
-
-        StyledText {
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
-            color: Appearance.m3colors.m3onSurfaceVariant
-            font.pixelSize: Appearance.font.pixelSize.small
-            text: Translation.tr("Configure an OpenAI-compatible provider. For DeepSeek use Base URL https://api.deepseek.com (no /v1).")
-        }
-
-        MaterialTextField {
-            id: apiBaseUrlField
-            Layout.fillWidth: true
-            placeholderText: Translation.tr("Base URL (e.g. https://api.deepseek.com)")
-            text: root.apiBaseUrlDraft
-            onTextChanged: root.apiBaseUrlDraft = text
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            MaterialTextField {
-                id: apiKeyField
-                Layout.fillWidth: true
-                placeholderText: Translation.tr("API key")
-                echoMode: root.apiKeyVisible ? TextInput.Normal : TextInput.Password
-                text: root.apiKeyDraft
-                onTextChanged: root.apiKeyDraft = text
-            }
-
-            DialogButton {
-                buttonText: root.apiKeyVisible ? Translation.tr("Hide") : Translation.tr("Show")
-                onClicked: root.apiKeyVisible = !root.apiKeyVisible
-            }
-        }
-
-        WindowDialogSeparator {}
-
-        WindowDialogButtonRow {
-            DialogButton {
-                buttonText: Translation.tr("Cancel")
-                onClicked: apiSettingsDialog.dismiss()
-            }
-
-            Item { Layout.fillWidth: true }
-
-            DialogButton {
-                buttonText: Translation.tr("Save")
-                onClicked: {
-                    Ai.setOpenAiBaseUrl(root.apiBaseUrlDraft, false);
-                    Ai.setOpenAiApiKey(root.apiKeyDraft, false);
-                    // Apply settings to local backend immediately.
-                    Ai.restartBackend();
-                    apiSettingsDialog.dismiss();
-                }
-            }
-        }
-    }
-
-    // Chat/session manager
-    WindowDialog {
-        id: chatManagerDialog
-        parent: root
-        anchors.fill: parent
-        z: 9999
-        show: root.showChatManagerDialog
-        // Responsive sizing: fit within available page area.
-        backgroundWidth: Math.max(300, Math.min(520, (root.width || 0) - 24))
-        backgroundHeight: Math.max(380, Math.min(560, (root.height || 0) - 24))
-        onDismiss: root.showChatManagerDialog = false
-
-        onShowChanged: {
-            if (!show) return;
-            // Keep list fresh whenever opened.
-            Ai.refreshChatList();
-        }
-
-        Timer {
-            id: pendingDeleteResetTimer
-            interval: 2500
-            repeat: false
-            onTriggered: root.__pendingDeleteChatId = -1
-        }
-
-        WindowDialogTitle {
-            text: Translation.tr("Chats")
-        }
-
-        StyledText {
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
-            color: Appearance.m3colors.m3onSurfaceVariant
-            font.pixelSize: Appearance.font.pixelSize.small
-            text: Translation.tr("Switch between sessions, create new ones, rename them, or delete old chats.")
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            color: Appearance.colors.colLayer2
-            radius: Appearance.rounding.small
-            implicitHeight: chatListColumn.implicitHeight + 10 * 2
-
-            ColumnLayout {
-                id: chatListColumn
-                anchors.fill: parent
-                anchors.margins: 10
-                spacing: 6
-
-                StyledText {
-                    Layout.fillWidth: true
-                    font.pixelSize: Appearance.font.pixelSize.small
-                    color: Appearance.colors.colSubtext
-                    text: Translation.tr("Sessions")
-                }
-
-                Loader {
-                    Layout.fillWidth: true
-                    active: (Ai.chatList?.length ?? 0) === 0
-                    sourceComponent: StyledText {
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                        color: Appearance.colors.colSubtext
-                        font.pixelSize: Appearance.font.pixelSize.small
-                        text: Translation.tr("No chats found.")
-                    }
-                }
-
-                ScrollView {
-                    Layout.fillWidth: true
-                    // Keep the list area bounded inside the dialog.
-                    implicitHeight: Math.min(280, listInner.implicitHeight)
-                    clip: true
-                    visible: (Ai.chatList?.length ?? 0) > 0
-
-                    ColumnLayout {
-                        id: listInner
-                        width: parent.width
-                        spacing: 6
-
-                        Repeater {
-                            model: Ai.chatList ?? []
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                implicitHeight: row.implicitHeight + 8 * 2
-                                height: implicitHeight
-                                radius: Appearance.rounding.small
-                                color: (modelData?.id === Ai.currentChatId)
-                                    ? Appearance.colors.colSecondaryContainer
-                                    : Appearance.colors.colLayer1
-
-                                property bool hovered: false
-
-                                RowLayout {
-                                    id: row
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 10
-
-                                    // Click area for switching chats (exclude action buttons on the right).
-                                    MouseArea {
-                                        id: switchArea
-                                        anchors {
-                                            left: parent.left
-                                            top: parent.top
-                                            bottom: parent.bottom
-                                            // Keep right side free for edit/delete buttons.
-                                            right: editChatButton.left
-                                        }
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        enabled: root.__editingChatId !== (modelData?.id ?? -999)
-                                        onEntered: parent.parent.hovered = true
-                                        onExited: parent.parent.hovered = false
-                                        onClicked: {
-                                            const cid = modelData?.id;
-                                            if (typeof cid !== "number") return;
-                                            if (cid === Ai.currentChatId) {
-                                                chatManagerDialog.dismiss();
-                                                return;
-                                            }
-                                            Ai.loadChatById(cid, true /* quiet */);
-                                            chatManagerDialog.dismiss();
-                                        }
-                                    }
-
-                                    Item {
-                                        Layout.alignment: Qt.AlignVCenter
-                                        implicitWidth: 22
-                                        implicitHeight: 22
-                                        MaterialSymbol {
-                                            anchors.centerIn: parent
-                                            text: (modelData?.id === Ai.currentChatId) ? "check_circle" : "chat_bubble"
-                                            iconSize: Appearance.font.pixelSize.normal
-                                            color: (modelData?.id === Ai.currentChatId)
-                                                ? Appearance.m3colors.m3onSecondaryContainer
-                                                : Appearance.colors.colSubtext
-                                        }
-                                    }
-
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-
-                                        Loader {
-                                            Layout.fillWidth: true
-                                            active: root.__editingChatId === (modelData?.id ?? -999)
-                                            sourceComponent: MaterialTextField {
-                                                Layout.fillWidth: true
-                                                placeholderText: Translation.tr("Chat name")
-                                                text: root.__editingChatNameDraft
-                                                onTextChanged: root.__editingChatNameDraft = text
-                                            }
-                                        }
-
-                                        Loader {
-                                            Layout.fillWidth: true
-                                            active: root.__editingChatId !== (modelData?.id ?? -999)
-                                            sourceComponent: StyledText {
-                                                Layout.fillWidth: true
-                                                elide: Text.ElideRight
-                                                font.pixelSize: Appearance.font.pixelSize.small
-                                                color: (modelData?.id === Ai.currentChatId)
-                                                    ? Appearance.m3colors.m3onSecondaryContainer
-                                                    : Appearance.colors.colOnLayer1
-                                                text: {
-                                                    const n = (modelData?.name ?? "").trim();
-                                                    return n.length > 0 ? n : Translation.tr("Unnamed")
-                                                }
-                                            }
-                                        }
-
-                                        StyledText {
-                                            Layout.fillWidth: true
-                                            font.pixelSize: Appearance.font.pixelSize.smaller
-                                            color: Appearance.colors.colSubtext
-                                            text: `#${modelData?.id ?? "?"}`
-                                        }
-                                    }
-
-                                    // Rename button / confirm-cancel while editing
-                                    RippleButton {
-                                        id: editChatButton
-                                        implicitWidth: 28
-                                        implicitHeight: 28
-                                        Layout.alignment: Qt.AlignVCenter
-                                        buttonRadius: Appearance.rounding.small
-                                        padding: 0
-                                        colBackground: ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
-                                        colBackgroundHover: Appearance.colors.colLayer2Hover
-                                        colRipple: Appearance.colors.colLayer2Active
-
-                                        contentItem: MaterialSymbol {
-                                            anchors.fill: parent
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: (root.__editingChatId === modelData?.id) ? "check" : "edit"
-                                            iconSize: Appearance.font.pixelSize.normal
-                                            color: Appearance.colors.colSubtext
-                                        }
-
-                                        onClicked: {
-                                            const cid = modelData?.id;
-                                            if (typeof cid !== "number") return;
-                                            if (root.__editingChatId !== cid) {
-                                                root.__editingChatId = cid;
-                                                root.__editingChatNameDraft = (modelData?.name ?? "").toString();
-                                                return;
-                                            }
-
-                                            // Confirm rename
-                                            const nextName = (root.__editingChatNameDraft ?? "").trim();
-                                            Ai.renameChatById(cid, nextName, true /* quiet */);
-                                            root.__editingChatId = -1;
-                                            root.__editingChatNameDraft = "";
-                                        }
-
-                                        StyledToolTip {
-                                            extraVisibleCondition: false
-                                            alternativeVisibleCondition: editChatButton.hovered
-                                            text: (root.__editingChatId === modelData?.id)
-                                                ? Translation.tr("Save")
-                                                : Translation.tr("Rename")
-                                        }
-                                    }
-
-                                    RippleButton {
-                                        id: cancelEditChatButton
-                                        visible: root.__editingChatId === modelData?.id
-                                        implicitWidth: 28
-                                        implicitHeight: 28
-                                        Layout.alignment: Qt.AlignVCenter
-                                        buttonRadius: Appearance.rounding.small
-                                        padding: 0
-                                        colBackground: ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
-                                        colBackgroundHover: Appearance.colors.colLayer2Hover
-                                        colRipple: Appearance.colors.colLayer2Active
-
-                                        contentItem: MaterialSymbol {
-                                            anchors.fill: parent
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: "close"
-                                            iconSize: Appearance.font.pixelSize.normal
-                                            color: Appearance.colors.colSubtext
-                                        }
-
-                                        onClicked: {
-                                            root.__editingChatId = -1;
-                                            root.__editingChatNameDraft = "";
-                                        }
-
-                                        StyledToolTip {
-                                            extraVisibleCondition: false
-                                            alternativeVisibleCondition: cancelEditChatButton.hovered
-                                            text: Translation.tr("Cancel")
-                                        }
-                                    }
-
-                                    RippleButton {
-                                        id: deleteChatButton
-                                        implicitWidth: 28
-                                        implicitHeight: 28
-                                        Layout.alignment: Qt.AlignVCenter
-                                        visible: root.__editingChatId !== modelData?.id
-                                        buttonRadius: Appearance.rounding.small
-                                        padding: 0
-                                        colBackground: (root.__pendingDeleteChatId === modelData?.id)
-                                            ? Appearance.colors.colErrorContainer
-                                            : ColorUtils.transparentize(Appearance.colors.colLayer2, 1)
-                                        colBackgroundHover: Appearance.colors.colLayer2Hover
-                                        colRipple: Appearance.colors.colLayer2Active
-
-                                        contentItem: MaterialSymbol {
-                                            anchors.fill: parent
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: "delete"
-                                            iconSize: Appearance.font.pixelSize.normal
-                                            color: (root.__pendingDeleteChatId === modelData?.id)
-                                                ? Appearance.m3colors.m3onErrorContainer
-                                                : Appearance.colors.colSubtext
-                                        }
-
-                                        onClicked: {
-                                            const cid = modelData?.id;
-                                            if (typeof cid !== "number") return;
-                                            if (root.__pendingDeleteChatId !== cid) {
-                                                root.__pendingDeleteChatId = cid;
-                                                pendingDeleteResetTimer.restart();
-                                                return;
-                                            }
-                                            root.__pendingDeleteChatId = -1;
-                                            pendingDeleteResetTimer.stop();
-                                            Ai.deleteChatById(cid, true /* quiet */);
-                                            // Keep dialog open; list will refresh via Ai.deleteChatById -> refreshChatList.
-                                        }
-
-                                        StyledToolTip {
-                                            extraVisibleCondition: false
-                                            alternativeVisibleCondition: deleteChatButton.hovered
-                                            text: (root.__pendingDeleteChatId === modelData?.id)
-                                                ? Translation.tr("Click again to delete")
-                                                : Translation.tr("Delete")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            MaterialTextField {
-                id: newChatNameField
-                Layout.fillWidth: true
-                placeholderText: Translation.tr("New chat name (optional)")
-                text: root.newChatNameDraft
-                onTextChanged: root.newChatNameDraft = text
-            }
-
-            DialogButton {
-                buttonText: Translation.tr("New")
-                onClicked: {
-                    Ai.createNewChat(root.newChatNameDraft, true /* quiet */);
-                    chatManagerDialog.dismiss();
-                }
-            }
-        }
-
-        WindowDialogButtonRow {
-            DialogButton {
-                buttonText: Translation.tr("Close")
-                onClicked: chatManagerDialog.dismiss()
-            }
-
-            Item { Layout.fillWidth: true }
-
-            DialogButton {
-                buttonText: Translation.tr("Refresh")
-                onClicked: Ai.refreshChatList()
-            }
-        }
-    }
-
-    Loader {
-        parent: root.dialogOverlayParent ?? root
-        anchors.fill: parent
-        active: root.showRequestLog
-        visible: root.showRequestLog
-        z: 9999
-        sourceComponent: Component {
-            RequestLogDialog {
-                anchors.fill: parent
-                onClosed: root.showRequestLog = false
             }
         }
     }
