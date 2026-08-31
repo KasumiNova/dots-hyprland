@@ -12,8 +12,6 @@ Item {
     required property var scopeRoot
     property int sidebarPadding: 10
     anchors.fill: parent
-    // Provided by `SidebarLeft.qml` on the content parent (sidebarLeftBackground)
-    readonly property real outputScale: (parent?.monitorScale ?? 1)
     property bool aiChatEnabled: Config.options.policies.ai !== 0
     property bool translatorEnabled: Config.options.sidebar.translator.enable
     property bool animeEnabled: Config.options.policies.weeb !== 0
@@ -141,10 +139,7 @@ Item {
     // Page components (referenced by SwipeView delegates)
     Component {
         id: aiChatPage
-        AiChat {
-            outputScale: root.outputScale
-            dialogOverlayParent: root
-        }
+        AiChat {}
     }
 
     Component {
