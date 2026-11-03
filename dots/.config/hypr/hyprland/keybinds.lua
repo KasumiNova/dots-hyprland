@@ -9,10 +9,10 @@ local hyprScripts = "$HOME/.config/hypr/hyprland/scripts"
 local qsIpcCall = "qs -c $qsConfig ipc call"
 local qsIsAlive = qsIpcCall .. " TEST_ALIVE"
 
-hl.bind("SUPER + SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"), { description = "Shell: Toggle search" })
-hl.bind("SUPER + SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"))
-hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
-hl.bind("SUPER + SUPER_R", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
+hl.bind("SUPER + SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"), { release = true, description = "Shell: Toggle search" })
+hl.bind("SUPER + SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"), { release = true })
+hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"), { release = true })
+hl.bind("SUPER + SUPER_R", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"), { release = true })
 
 hl.bind("SUPER_L", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
 hl.bind("SUPER_R", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
@@ -284,6 +284,10 @@ for i = 1, 4 do
     local keycombos = { key[1], key[2], "CTRL + " .. key[1], "CTRL + " .. key[2] }
     local prefix = { "r+", "r-", "r+", "r-" }
     hl.bind(keycombos[i], hl.dsp.focus({ workspace = prefix[i] .. "1" }))
+end
+-- Prevent Super release from opening search after mouse scroll
+for _, key in ipairs({ "mouse_down", "mouse_up" }) do
+    hl.bind("SUPER + " .. key, hl.dsp.global("quickshell:searchToggleReleaseInterrupt"), { non_consuming = true })
 end
 --#/# bind = SUPER, Scroll ↑/↓,, -- Focus left/right
 for i = 1, 4 do
